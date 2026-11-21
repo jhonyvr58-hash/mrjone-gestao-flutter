@@ -29,6 +29,27 @@ Future<void> _initNotifications() async {
   final androidImpl = kNotificationsPlugin
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
+
+  const AndroidNotificationChannel bgChannel = AndroidNotificationChannel(
+    'mrjone_bg_monitor',
+    'Monitoramento Mr Jone',
+    description: 'Mantem o monitoramento ativo com o app fechado',
+    importance: Importance.low,
+    playSound: false,
+    enableVibration: false,
+  );
+
+  const AndroidNotificationChannel bookingsChannel = AndroidNotificationChannel(
+    'mrjone_bookings_channel',
+    'Novos Agendamentos',
+    description: 'Avisos quando um cliente faz um novo agendamento',
+    importance: Importance.max,
+    playSound: true,
+    enableVibration: true,
+  );
+
+  await androidImpl?.createNotificationChannel(bgChannel);
+  await androidImpl?.createNotificationChannel(bookingsChannel);
   await androidImpl?.requestNotificationsPermission();
 }
 
@@ -56,6 +77,7 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
+
 @pragma('vm:entry-point')
 void _onStartBackground(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
