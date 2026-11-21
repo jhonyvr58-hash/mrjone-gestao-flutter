@@ -56,7 +56,6 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
-
 @pragma('vm:entry-point')
 void _onStartBackground(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
@@ -104,7 +103,10 @@ void _onStartBackground(ServiceInstance service) async {
             );
           }
 
-          await prefs.setStringList(kPrefKnownBookingKeys, currentKeys);
+          await prefs.setStringList(
+            kPrefKnownBookingKeys,
+            currentKeys.map((e) => e.toString()).toList(),
+          );
         }
       }
     } catch (_) {}
@@ -315,7 +317,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           });
         }
 
-        await prefs.setStringList(kPrefKnownBookingKeys, allKeys);
+        await prefs.setStringList(
+          kPrefKnownBookingKeys,
+          allKeys.map((e) => e.toString()).toList(),
+        );
         _firstLoadDone = true;
 
         int notifId = 100;
@@ -463,8 +468,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
 
     final srvCtrl = TextEditingController(text: currentServiceName);
-    final priceCtrl = TextEditingController(text: currentPrice.toStringAsFixed(2));
-    final dateCtrl = TextEditingController(text: (b['dateLabel'] ?? '').toString());
+    final priceCtrl =
+        TextEditingController(text: currentPrice.toStringAsFixed(2));
+    final dateCtrl =
+        TextEditingController(text: (b['dateLabel'] ?? '').toString());
     final timeCtrl = TextEditingController(text: (b['time'] ?? '').toString());
     final barberCtrl =
         TextEditingController(text: (b['barberName'] ?? 'Mr. Jone').toString());
@@ -552,7 +559,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               ),
               TextField(
                 controller: timeCtrl,
-                decoration: const InputDecoration(labelText: 'Horário (ex: 10:30)'),
+                decoration:
+                    const InputDecoration(labelText: 'Horário (ex: 10:30)'),
               ),
               TextField(
                 controller: barberCtrl,
