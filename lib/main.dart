@@ -83,8 +83,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   bool _loading = false;
   String _statusMsg = 'Aguardando conexão com o Firebase';
   final TextEditingController _passController = TextEditingController();
-  List> _bookings = [];
-  final Set<String> _knownKeys = {};
+  List _bookings = [];
+  final Set _knownKeys = {};
   bool _firstLoadDone = false;
   Timer? _pollTimer;
 
@@ -125,14 +125,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       final res = await http.get(uri);
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
-        final List> loaded = [];
-        final List> brandNew = [];
+        final List loaded = [];
+        final List brandNew = [];
 
         if (decoded is Map) {
           decoded.forEach((key, val) {
             if (val is Map) {
               final k = key.toString();
-              final item = Map<String, dynamic>.from(val);
+              final item = Map.from(val);
               item['firebaseKey'] = k;
               loaded.add(item);
 
@@ -182,7 +182,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
   }
 
-  Future<void> _openWhatsApp(Map<String, dynamic> b) async {
+  Future<void> _openWhatsApp(Map b) async {
     final client = (b['clientName'] ?? 'Cliente').toString();
     final dateLbl = (b['dateLabel'] ?? '').toString();
     final timeLbl = (b['time'] ?? '').toString();
@@ -221,7 +221,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     } catch (_) {}
   }
 
-  double _calcReceitaItem(Map<String, dynamic> item) {
+  double _calcReceitaItem(Map item) {
     final double price = double.tryParse('${item['price'] ?? 0}') ?? 0;
     final bool isPlan = item['isPlan'] == true;
     final int sessions =
@@ -237,7 +237,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       if (items is List) {
         for (final it in items) {
           if (it is Map) {
-            sum += _calcReceitaItem(Map<String, dynamic>.from(it));
+            sum += _calcReceitaItem(it);
           }
         }
       }
@@ -389,7 +389,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             ..._bookings.map((b) {
               final String key = (b['firebaseKey'] ?? '').toString();
               final String status = (b['status'] ?? 'confirmado').toString();
-              final List<String> srvNames = [];
+              final List srvNames = [];
               if (b['items'] is List) {
                 for (final it in b['items']) {
                   if (it is Map && it['name'] != null) {
