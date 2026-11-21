@@ -24,6 +24,14 @@ jobs:
         with:
           channel: stable
 
+      - name: Scaffold Android project if missing
+        run: |
+          if [ ! -d "android" ]; then
+            cp pubspec.yaml /tmp/pubspec.yaml.bak
+            flutter create . --platforms android --org com.mrjone --project-name mrjone_gestao
+            cp /tmp/pubspec.yaml.bak pubspec.yaml
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
