@@ -33,57 +33,64 @@ jobs:
           fi
 
           python3 - <<'PY'
+          import re
           from pathlib import Path
-
-          def enable_desugaring(text: str, is_kts: bool) -> str:
-              if is_kts:
-                  if "isCoreLibraryDesugaringEnabled" not in text:
-                      if "compileOptions {" in text:
-                          text = text.replace(
-                              "compileOptions {",
-                              "compileOptions {\n        isCoreLibraryDesugaringEnabled = true",
-                              1,
-                          )
-                      elif "compileOptions{" in text:
-                          text = text.replace(
-                              "compileOptions{",
-                              "compileOptions{\n        isCoreLibraryDesugaringEnabled = true",
-                              1,
-                          )
-                  if "coreLibraryDesugaring(" not in text and "dependencies {" in text:
-                      text = text.replace(
-                          "dependencies {",
-                          'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")',
-                          1,
-                      )
-              else:
-                  if "coreLibraryDesugaringEnabled" not in text:
-                      if "compileOptions {" in text:
-                          text = text.replace(
-                              "compileOptions {",
-                              "compileOptions {\n        coreLibraryDesugaringEnabled true",
-                              1,
-                          )
-                      elif "compileOptions{" in text:
-                          text = text.replace(
-                              "compileOptions{",
-                              "compileOptions{\n        coreLibraryDesugaringEnabled true",
-                              1,
-                          )
-                  if "coreLibraryDesugaring " not in text and "dependencies {" in text:
-                      text = text.replace(
-                          "dependencies {",
-                          "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'",
-                          1,
-                      )
-              return text
 
           for path_str in ["android/app/build.gradle.kts", "android/app/build.gradle"]:
               p = Path(path_str)
-              if p.exists():
-                  original = p.read_text(encoding="utf-8")
-                  updated = enable_desugaring(original, path_str.endswith(".kts"))
-                  p.write_text(updated, encoding="utf-8")
+              if not p.exists():
+                  continue
+              text = p.read_text(encoding="utf-8")
+              is_kts = path_str.endswith(".kts")
+
+              if is_kts:
+                  if "isCoreLibraryDesugaringEnabled" not in text:
+                      if re.search(r"compileOptions\s*\{", text):
+                          text = re.sub(
+                              r"(compileOptions\s*\{)",
+                              r"\1\n        isCoreLibraryDesugaringEnabled = true",
+                              text,
+                              count=1,
+                          )
+                      else:
+                          text += "\nandroid {\n    compileOptions {\n        isCoreLibraryDesugaringEnabled = true\n    }\n}\n"
+
+                  dep_line = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")'
+                  if "coreLibraryDesugaring(" not in text:
+                      if re.search(r"dependencies\s*\{", text):
+                          text = re.sub(
+                              r"(dependencies\s*\{)",
+                              r"\1\n" + dep_line,
+                              text,
+                              count=1,
+                          )
+                      else:
+                          text += f"\ndependencies {{\n{dep_line}\n}}\n"
+              else:
+                  if "coreLibraryDesugaringEnabled" not in text:
+                      if re.search(r"compileOptions\s*\{", text):
+                          text = re.sub(
+                              r"(compileOptions\s*\{)",
+                              r"\1\n        coreLibraryDesugaringEnabled true",
+                              text,
+                              count=1,
+                          )
+                      else:
+                          text += "\nandroid {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n    }\n}\n"
+
+                  dep_line = "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'"
+                  if "coreLibraryDesugaring " not in text:
+                      if re.search(r"dependencies\s*\{", text):
+                          text = re.sub(
+                              r"(dependencies\s*\{)",
+                              r"\1\n" + dep_line,
+                              text,
+                              count=1,
+                          )
+                      else:
+                          text += f"\ndependencies {{\n{dep_line}\n}}\n"
+
+              p.write_text(text, encoding="utf-8")
 
           manifest_path = Path("android/app/src/main/AndroidManifest.xml")
           if manifest_path.exists():
