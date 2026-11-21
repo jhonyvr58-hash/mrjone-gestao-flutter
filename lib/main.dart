@@ -15,6 +15,100 @@ const String kPrefAdminPass = 'mrjone_admin_pass';
 const String kPrefLoggedIn = 'mrjone_logged_in';
 const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
 
+final List> kDefaultServices = [
+  {
+    'id': 'def_srv_1',
+    'name': 'Máquina Pente Só',
+    'category': 'Serviços Avulsos',
+    'price': 35.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+  {
+    'id': 'def_srv_2',
+    'name': 'Cabelo Disfarçado',
+    'category': 'Serviços Avulsos',
+    'price': 40.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+  {
+    'id': 'def_srv_3',
+    'name': 'Barba',
+    'category': 'Serviços Avulsos',
+    'price': 30.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+  {
+    'id': 'def_srv_4',
+    'name': 'Cabelo e Barba',
+    'category': 'Serviços Avulsos',
+    'price': 65.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+  {
+    'id': 'def_srv_5',
+    'name': 'Sobrancelha',
+    'category': 'Serviços Avulsos',
+    'price': 8.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+  {
+    'id': 'def_srv_6',
+    'name': 'Pé de Cabelo',
+    'category': 'Serviços Avulsos',
+    'price': 10.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+  {
+    'id': 'def_srv_7',
+    'name': 'Pigmentação',
+    'category': 'Serviços Avulsos',
+    'price': 15.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+  {
+    'id': 'def_srv_8',
+    'name': 'Platinado + Corte',
+    'category': 'Química & Luzes',
+    'price': 100.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+  {
+    'id': 'def_srv_9',
+    'name': 'Luzes + Corte',
+    'category': 'Química & Luzes',
+    'price': 100.0,
+    'isPlan': false,
+    'sessionsPerMonth': 1,
+  },
+];
+
+final List> kDefaultPlans = [
+  {
+    'id': 'def_pln_1',
+    'name': 'Plano Mensal Corte (4x)',
+    'category': 'Planos Mensais',
+    'price': 130.0,
+    'isPlan': true,
+    'sessionsPerMonth': 4,
+  },
+  {
+    'id': 'def_pln_2',
+    'name': 'Plano Mensal Cabelo + Barba (4x)',
+    'category': 'Planos Mensais',
+    'price': 210.0,
+    'isPlan': true,
+    'sessionsPerMonth': 4,
+  },
+];
+
 final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
@@ -78,7 +172,6 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
-
 @pragma('vm:entry-point')
 void _onStartBackground(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
@@ -150,9 +243,9 @@ Future<void> _initBackgroundService() async {
       autoStart: true,
       isForegroundMode: true,
       notificationChannelId: 'mrjone_bg_monitor',
-      initialNotificationTitle: 'Gestão Mr Jone Ativa',
+      initialNotificationTitle: 'Barbearia Mr Jone • Gestão Ativa',
       initialNotificationContent:
-          'Monitorando novos agendamentos mesmo fechado',
+          'Monitorando agendamentos mesmo com o app fechado',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -176,7 +269,7 @@ class MrJoneGestaoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Gestão Mr Jone',
+      title: 'Barbearia Mr Jone • Gestão',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0B0B0C),
@@ -220,6 +313,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   @override
   void initState() {
     super.initState();
+    _services = List.from(kDefaultServices);
+    _plans = List.from(kDefaultPlans);
     _loadSavedSessionAndPass();
   }
 
@@ -461,8 +556,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
       if (!mounted) return;
       setState(() {
-        _services = srvList;
-        _plans = plnList;
+        _services = srvList.isNotEmpty ? srvList : List.from(kDefaultServices);
+        _plans = plnList.isNotEmpty ? plnList : List.from(kDefaultPlans);
       });
     } catch (_) {}
   }
@@ -495,7 +590,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-     Future<void> _openEditBookingDialog(Map b) async {
+    Future<void> _openEditBookingDialog(Map b) async {
     final String firebaseKey = (b['firebaseKey'] ?? '').toString();
     if (firebaseKey.isEmpty) return;
 
@@ -523,11 +618,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final barberCtrl =
         TextEditingController(text: (b['barberName'] ?? 'Mr. Jone').toString());
 
-    final List allOptions = [];
+    final List> allOptions = [];
     for (final s in _services) {
       allOptions.add({
         'name': (s['name'] ?? '').toString(),
-        'price': double.tryParse('${s['price'] ?? 0}') ?? 0,
+        'price': double.tryParse('${s['price'] ?? 0}') ?? 0.0,
         'isPlan': false,
         'sessionsPerMonth': 1,
       });
@@ -535,7 +630,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     for (final p in _plans) {
       allOptions.add({
         'name': (p['name'] ?? '').toString(),
-        'price': double.tryParse('${p['price'] ?? 0}') ?? 0,
+        'price': double.tryParse('${p['price'] ?? 0}') ?? 0.0,
         'isPlan': true,
         'sessionsPerMonth': int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4,
       });
@@ -554,40 +649,37 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (allOptions.isNotEmpty) ...[
-                const Text(
-                  'Trocar pelo catálogo:',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
+              const Text(
+                'Trocar serviço ou plano do cliente:',
+                style: TextStyle(fontSize: 12, color: Colors.white70),
+              ),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<int>(
+                dropdownColor: const Color(0xFF1B1B20),
+                decoration: const InputDecoration(
+                  labelText: 'Escolher da tabela de preços',
                 ),
-                const SizedBox(height: 6),
-                DropdownButtonFormField<int>(
-                  dropdownColor: const Color(0xFF1B1B20),
-                  decoration: const InputDecoration(
-                    labelText: 'Selecionar serviço/plano',
-                  ),
-                  items: [
-                    for (var i = 0; i < allOptions.length; i++)
-                      DropdownMenuItem<int>(
-                        value: i,
-                        child: Text(
-                          '${allOptions[i]['name']} (R\$ ${(allOptions[i]['price'] as double).toStringAsFixed(2)})',
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                items: [
+                  for (var i = 0; i < allOptions.length; i++)
+                    DropdownMenuItem<int>(
+                      value: i,
+                      child: Text(
+                        '${allOptions[i]['name']} (R\$ ${(allOptions[i]['price'] as double).toStringAsFixed(2)})',
+                        overflow: TextOverflow.ellipsis,
                       ),
-                  ],
-                  onChanged: (idx) {
-                    if (idx == null) return;
-                    final opt = allOptions[idx];
-                    srvCtrl.text = opt['name'].toString();
-                    priceCtrl.text =
-                        (opt['price'] as double).toStringAsFixed(2);
-                    currentIsPlan = opt['isPlan'] == true;
-                    currentSessions =
-                        int.tryParse('${opt['sessionsPerMonth'] ?? 4}') ?? 4;
-                  },
-                ),
-                const SizedBox(height: 10),
-              ],
+                    ),
+                ],
+                onChanged: (idx) {
+                  if (idx == null) return;
+                  final opt = allOptions[idx];
+                  srvCtrl.text = opt['name'].toString();
+                  priceCtrl.text = (opt['price'] as double).toStringAsFixed(2);
+                  currentIsPlan = opt['isPlan'] == true;
+                  currentSessions =
+                      int.tryParse('${opt['sessionsPerMonth'] ?? 4}') ?? 4;
+                },
+              ),
+              const SizedBox(height: 10),
               TextField(
                 controller: srvCtrl,
                 decoration: const InputDecoration(labelText: 'Serviço / Plano'),
@@ -689,7 +781,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           isPlan ? (sessionsPerMonth <= 0 ? 4 : sessionsPerMonth) : 1,
     };
 
-    if (existingId != null && existingId.isNotEmpty) {
+    if (existingId != null &&
+        existingId.isNotEmpty &&
+        !existingId.startsWith('def_')) {
       await http.patch(
         Uri.parse('$kFirebaseDbUrl/$node/$existingId.json'),
         headers: {'Content-Type': 'application/json'},
@@ -707,9 +801,19 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
   Future<void> _deleteCatalogItem(bool isPlan, String id) async {
     if (id.isEmpty) return;
-    final node = isPlan ? 'plans' : 'services';
-    await http.delete(Uri.parse('$kFirebaseDbUrl/$node/$id.json'));
-    await _fetchCatalog();
+    if (!id.startsWith('def_')) {
+      final node = isPlan ? 'plans' : 'services';
+      await http.delete(Uri.parse('$kFirebaseDbUrl/$node/$id.json'));
+      await _fetchCatalog();
+    } else {
+      setState(() {
+        if (isPlan) {
+          _plans.removeWhere((p) => (p['id'] ?? '').toString() == id);
+        } else {
+          _services.removeWhere((s) => (s['id'] ?? '').toString() == id);
+        }
+      });
+    }
   }
 
   Future<void> _saveBarber({
@@ -766,7 +870,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         backgroundColor: const Color(0xFF141417),
         title: Text(
           item == null
-              ? (isPlan ? 'Novo Plano / Categoria' : 'Novo Serviço Avulso')
+              ? (isPlan ? 'Novo Plano / Categoria' : 'Novo Serviço / Corte')
               : (isPlan ? 'Editar Plano' : 'Editar Serviço'),
           style: const TextStyle(color: Color(0xFFF3D97E)),
         ),
@@ -855,7 +959,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             ),
             TextField(
               controller: roleCtrl,
-              decoration: const InputDecoration(labelText: 'Especialidade / Função'),
+              decoration:
+                  const InputDecoration(labelText: 'Especialidade / Função'),
             ),
             TextField(
               controller: commCtrl,
@@ -935,22 +1040,79 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return isPlan ? (price / (sessions <= 0 ? 4 : sessions)) : price;
   }
 
-  double _totalReceita() {
+  double _calcBookingValue(Map b) {
     double sum = 0;
-    for (final b in _bookings) {
-      if ((b['status'] ?? '') == 'cancelado') continue;
-      final items = b['items'];
-      if (items is List) {
-        for (final it in items) {
-          if (it is Map) {
-            sum += _calcReceitaItem(it);
-          }
+    final items = b['items'];
+    if (items is List) {
+      for (final it in items) {
+        if (it is Map) {
+          sum += _calcReceitaItem(it);
         }
       }
     }
     return sum;
   }
-     Widget _buildBookingsTab() {
+
+  double _totalReceita() {
+    double sum = 0;
+    for (final b in _bookings) {
+      if ((b['status'] ?? '') == 'cancelado') continue;
+      sum += _calcBookingValue(b);
+    }
+    return sum;
+  }
+
+  double _barberTotalGenerated(String barberName) {
+    final target = barberName.trim().toLowerCase();
+    if (target.isEmpty) return 0;
+    double sum = 0;
+    for (final b in _bookings) {
+      if ((b['status'] ?? '') == 'cancelado') continue;
+      final bName = (b['barberName'] ?? '').toString().trim().toLowerCase();
+      if (bName == target || bName.contains(target) || target.contains(bName)) {
+        sum += _calcBookingValue(b);
+      }
+    }
+    return sum;
+  }
+    Widget _buildHeaderBanner() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141417),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFD4AF37), width: 1.0),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.content_cut, color: Color(0xFFD4AF37), size: 18),
+              SizedBox(width: 8),
+              Text(
+                'BARBEARIA MR JONE',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.0,
+                  color: Color(0xFFF3D97E),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _statusMsg,
+            style: const TextStyle(fontSize: 12, color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingsTab() {
     final double receita = _totalReceita();
     final double comissao50 = receita * 0.5;
 
@@ -959,11 +1121,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       child: ListView(
         padding: const EdgeInsets.all(14),
         children: [
-          Text(
-            _statusMsg,
-            style: const TextStyle(fontSize: 12, color: Colors.white70),
-          ),
-          const SizedBox(height: 10),
+          _buildHeaderBanner(),
           if (_newAlerts.isNotEmpty) ...[
             Card(
               color: const Color(0xFF231D09),
@@ -1065,6 +1223,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           ..._bookings.map((b) {
             final String key = (b['firebaseKey'] ?? '').toString();
             final String status = (b['status'] ?? 'confirmado').toString();
+            final double val = _calcBookingValue(b);
             final List srvNames = [];
             if (b['items'] is List) {
               for (final it in b['items']) {
@@ -1090,7 +1249,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Barbeiro: ${b['barberName'] ?? 'Mr. Jone'} • Status: $status',
+                      'Barbeiro: ${b['barberName'] ?? 'Mr. Jone'} • R\$ ${val.toStringAsFixed(2)} • $status',
                       style: const TextStyle(fontSize: 12),
                     ),
                     if (srvNames.isNotEmpty)
@@ -1160,7 +1319,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   ),
                   onPressed: () => _openCatalogDialog(isPlan: false),
                   icon: const Icon(Icons.add),
-                  label: const Text('Serviço Avulso'),
+                  label: const Text('Serviço / Corte'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1172,28 +1331,20 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   ),
                   onPressed: () => _openCatalogDialog(isPlan: true),
                   icon: const Icon(Icons.workspace_premium),
-                  label: const Text('Plano / Categoria'),
+                  label: const Text('Plano Mensal'),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
           const Text(
-            'SERVIÇOS AVULSOS',
+            'SERVIÇOS E CORTES',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Color(0xFFF3D97E),
             ),
           ),
           const SizedBox(height: 6),
-          if (_services.isEmpty)
-            const Card(
-              color: Color(0xFF141417),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('Nenhum serviço avulso cadastrado no Firebase.'),
-              ),
-            ),
           ..._services.map((s) {
             final price = double.tryParse('${s['price'] ?? 0}') ?? 0;
             return Card(
@@ -1221,21 +1372,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           }),
           const SizedBox(height: 14),
           const Text(
-            'PLANOS & CATEGORIAS',
+            'PLANOS MENSAIS',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Color(0xFFF3D97E),
             ),
           ),
           const SizedBox(height: 6),
-          if (_plans.isEmpty)
-            const Card(
-              color: Color(0xFF141417),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('Nenhum plano cadastrado no Firebase.'),
-              ),
-            ),
           ..._plans.map((p) {
             final price = double.tryParse('${p['price'] ?? 0}') ?? 0;
             final sessions = int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4;
@@ -1290,16 +1433,21 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               color: Color(0xFF141417),
               child: Padding(
                 padding: EdgeInsets.all(12),
-                child: Text('Nenhum barbeiro cadastrado no Firebase.'),
+                child: Text(
+                    'Nenhum barbeiro cadastrado no Firebase. Toque acima para adicionar.'),
               ),
             ),
           ..._barbers.map((b) {
+            final name = (b['name'] ?? 'Barbeiro').toString();
+            final commPct = double.tryParse('${b['commission'] ?? 50}') ?? 50;
+            final generated = _barberTotalGenerated(name);
+            final commissionVal = generated * (commPct / 100.0);
             return Card(
               color: const Color(0xFF141417),
               child: ListTile(
-                title: Text((b['name'] ?? 'Barbeiro').toString()),
+                title: Text('$name • Comissão ${commPct.toStringAsFixed(0)}%'),
                 subtitle: Text(
-                  '${b['role'] ?? 'Barbeiro'} • Comissão: ${b['commission'] ?? 50}%',
+                  '${b['role'] ?? 'Barbeiro'} • Produzido: R\$ ${generated.toStringAsFixed(2)} • A receber: R\$ ${commissionVal.toStringAsFixed(2)}',
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1419,7 +1567,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     if (!_unlocked) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('GESTÃO MR JONE • APP'),
+          title: const Text('BARBEARIA MR JONE • GESTÃO'),
           backgroundColor: const Color(0xFF141417),
         ),
         body: Padding(
@@ -1428,15 +1576,25 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              const Icon(Icons.content_cut, color: gold, size: 44),
+              const SizedBox(height: 10),
               const Text(
-                'Acesso do Proprietário',
+                'BARBEARIA MR JONE',
+                textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
                   color: Color(0xFFF3D97E),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 6),
+              const Text(
+                'Acesso do Proprietário',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.white70),
+              ),
+              const SizedBox(height: 18),
               TextField(
                 controller: _passController,
                 obscureText: true,
@@ -1475,7 +1633,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('GESTÃO MR JONE'),
+        title: const Text('MR JONE • GESTÃO'),
         backgroundColor: const Color(0xFF141417),
         actions: [
           IconButton(
