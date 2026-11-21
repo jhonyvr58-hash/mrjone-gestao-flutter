@@ -92,6 +92,18 @@ jobs:
 
               p.write_text(text, encoding="utf-8")
 
+          for gradle_file in ["android/settings.gradle.kts", "android/build.gradle.kts"]:
+              gp = Path(gradle_file)
+              if gp.exists():
+                  gtext = gp.read_text(encoding="utf-8")
+                  if "mavenCentral()" not in gtext:
+                      gtext = re.sub(
+                          r"(repositories\s*\{)",
+                          r"\1\n        google()\n        mavenCentral()",
+                          gtext,
+                      )
+                  gp.write_text(gtext, encoding="utf-8")
+
           manifest_path = Path("android/app/src/main/AndroidManifest.xml")
           if manifest_path.exists():
               m_text = manifest_path.read_text(encoding="utf-8")
@@ -117,7 +129,9 @@ jobs:
           PY
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          flutter clean
+          flutter pub get
 
       - name: Build release APK
         run: flutter build apk --release
