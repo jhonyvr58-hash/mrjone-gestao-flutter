@@ -24,13 +24,83 @@ jobs:
         with:
           channel: stable
 
-      - name: Scaffold Android project if missing
+      - name: Scaffold and configure Android project
         run: |
           if [ ! -d "android" ]; then
             cp pubspec.yaml /tmp/pubspec.yaml.bak
             flutter create . --platforms android --org com.mrjone --project-name mrjone_gestao
             cp /tmp/pubspec.yaml.bak pubspec.yaml
           fi
+
+          python3 - <<'EOF'
+          from pathlib import Path
+
+          for path_str in ["android/app/build.gradle.kts", "android/app/build.gradle"]:
+              p = Path(path_str)
+              if not p.exists():
+                  continue
+              text = p.read_text(encoding="utf-8")
+
+              if path_str.endswith(".kts"):
+                  if "isCoreLibraryDesugaringEnabled" not in text:
+                      if "compileOptions {" in text:
+                          text = text.replace(
+                              "compileOptions {",
+                              "compileOptions {\n        isCoreLibraryDesugaringEnabled = true",
+                              1,
+                          )
+                      elif "compileOptions{" in text:
+                          text = text.replace(
+                              "compileOptions{",
+                              "compileOptions{\n        isCoreLibraryDesugaringEnabled = true",
+                              1,
+                          )
+                  if "coreLibraryDesugaring(" not in text:
+                      if "dependencies {" in text:
+                          text = text.replace(
+                              "dependencies {",
+                              'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")',
+                              1,
+                          )
+              else:
+                  if "coreLibraryDesugaringEnabled" not in text:
+                      if "compileOptions {" in text:
+                          text = text.replace(
+                              "compileOptions {",
+                              "compileOptions {\n        coreLibraryDesugaringEnabled true",
+                              1,
+                          )
+                      elif "compileOptions{" in text:
+                          text = text.replace(
+                              "compileOptions{",
+                              "compileOptions{\n        coreLibraryDesugaringEnabled true",
+                              1,
+                          )
+                  if "coreLibraryDesugaring " not in text:
+                      if "dependencies {" in text:
+                          text = text.replace(
+                              "dependencies {",
+                              "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'",
+                              1,
+                          )
+
+              p.write_text(text, encoding="utf-8")
+
+          manifest_path = Path("android/app/src/main/AndroidManifest.xml")
+          if manifest_path.exists():
+              m_text = manifest_path.read_text(encoding="utf-8")
+              perms = []
+              if "android.permission.INTERNET" not in m_text:
+                  perms.append('<uses-permission android:name="android.permission.INTERNET"/>')
+              if "android.permission.POST_NOTIFICATIONS" not in m_text:
+                  perms.append('<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>')
+              if perms and "<manifest" in m_text:
+              idx = m_text.find(">", m_text.find("<manifest"))
+              if idx != -1:
+                  insert_block = "\n    " + "\n    ".join(perms)
+                  m_text = m_text[:idx+1] + insert_block + m_text[idx+1:]
+                  manifest_path.write_text(m_text, encoding="utf-8")
+          EOF
 
       - name: Install dependencies
         run: flutter pub get
