@@ -95,11 +95,19 @@ jobs:
           manifest_path = Path("android/app/src/main/AndroidManifest.xml")
           if manifest_path.exists():
               m_text = manifest_path.read_text(encoding="utf-8")
-              perms = []
-              if "android.permission.INTERNET" not in m_text:
-                  perms.append('<uses-permission android:name="android.permission.INTERNET"/>')
-              if "android.permission.POST_NOTIFICATIONS" not in m_text:
-                  perms.append('<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>')
+              needed = [
+                  "android.permission.INTERNET",
+                  "android.permission.POST_NOTIFICATIONS",
+                  "android.permission.FOREGROUND_SERVICE",
+                  "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+                  "android.permission.WAKE_LOCK",
+                  "android.permission.RECEIVE_BOOT_COMPLETED",
+              ]
+              perms = [
+                  f'<uses-permission android:name="{perm}"/>'
+                  for perm in needed
+                  if perm not in m_text
+              ]
               if perms and "<manifest" in m_text:
                   idx = m_text.find(">", m_text.find("<manifest"))
                   if idx != -1:
