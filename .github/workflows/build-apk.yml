@@ -125,7 +125,15 @@ jobs:
                   if idx != -1:
                       insert_block = "\n    " + "\n    ".join(perms)
                       m_text = m_text[:idx+1] + insert_block + m_text[idx+1:]
-                      manifest_path.write_text(m_text, encoding="utf-8")
+
+              svc_tag = (
+                  '<service android:name="id.flutter.flutter_background_service.BackgroundService" '
+                  'android:exported="true" android:foregroundServiceType="dataSync"/>'
+              )
+              if "BackgroundService" not in m_text and "</application>" in m_text:
+                  m_text = m_text.replace("</application>", f"    {svc_tag}\n    </application>", 1)
+
+              manifest_path.write_text(m_text, encoding="utf-8")
           PY
 
       - name: Install dependencies
