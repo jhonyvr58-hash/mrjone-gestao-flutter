@@ -107,7 +107,6 @@ final List> kDefaultPlans = [
     'sessionsPerMonth': 4,
   },
 ];
-
 final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
@@ -399,8 +398,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-
-  Future<void> _syncAll() async {
+      Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'Sincronizando dados com o Firebase...';
@@ -590,7 +588,32 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-     Future<void> _openEditBookingDialog(Map b) async {
+      List> _buildCatalogOptions() {
+    final List> options = [];
+    for (final s in _services) {
+      if (s is Map) {
+        options.add({
+          'name': (s['name'] ?? '').toString(),
+          'price': double.tryParse('${s['price'] ?? 0}') ?? 0.0,
+          'isPlan': false,
+          'sessionsPerMonth': 1,
+        });
+      }
+    }
+    for (final p in _plans) {
+      if (p is Map) {
+        options.add({
+          'name': (p['name'] ?? '').toString(),
+          'price': double.tryParse('${p['price'] ?? 0}') ?? 0.0,
+          'isPlan': true,
+          'sessionsPerMonth': int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4,
+        });
+      }
+    }
+    return options;
+  }
+
+  Future<void> _openEditBookingDialog(Map b) async {
     final String firebaseKey = (b['firebaseKey'] ?? '').toString();
     if (firebaseKey.isEmpty) return;
 
@@ -618,23 +641,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final barberCtrl =
         TextEditingController(text: (b['barberName'] ?? 'Mr. Jone').toString());
 
-    final List> allOptions = [];
-    for (final s in _services) {
-      allOptions.add({
-        'name': (s['name'] ?? '').toString(),
-        'price': double.tryParse('${s['price'] ?? 0}') ?? 0.0,
-        'isPlan': false,
-        'sessionsPerMonth': 1,
-      });
-    }
-    for (final p in _plans) {
-      allOptions.add({
-        'name': (p['name'] ?? '').toString(),
-        'price': double.tryParse('${p['price'] ?? 0}') ?? 0.0,
-        'isPlan': true,
-        'sessionsPerMonth': int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4,
-      });
-    }
+    final List> allOptions = _buildCatalogOptions();
 
     await showDialog(
       context: context,
@@ -1000,7 +1007,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-     Future<void> _openWhatsApp(Map b) async {
+      Future<void> _openWhatsApp(Map b) async {
     final client = (b['clientName'] ?? 'Cliente').toString();
     final dateLbl = (b['dateLabel'] ?? '').toString();
     final timeLbl = (b['time'] ?? '').toString();
@@ -1075,7 +1082,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     return sum;
   }
-     Widget _buildHeaderBanner() {
+
+  Widget _buildHeaderBanner() {
     return Container(
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 10),
@@ -1411,8 +1419,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Widget _buildBarbersTab() {
+      Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
       child: ListView(
