@@ -32,7 +32,7 @@ jobs:
             cp /tmp/pubspec.yaml.bak pubspec.yaml
           fi
 
-          python3 - <<'EOF'
+          cat << 'EOF' > /tmp/configure_android.py
           from pathlib import Path
 
           for path_str in ["android/app/build.gradle.kts", "android/app/build.gradle"]:
@@ -95,12 +95,20 @@ jobs:
               if "android.permission.POST_NOTIFICATIONS" not in m_text:
                   perms.append('<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>')
               if perms and "<manifest" in m_text:
-              idx = m_text.find(">", m_text.find("<manifest"))
-              if idx != -1:
-                  insert_block = "\n    " + "\n    ".join(perms)
-                  m_text = m_text[:idx+1] + insert_block + m_text[idx+1:]
-                  manifest_path.write_text(m_text, encoding="utf-8")
+                  idx = m_text.find(">", m_text.find("<manifest"))
+                  if idx != -1:
+                      insert_block = "\n    " + "\n    ".join(perms)
+                      m_text = m_text[:idx+1] + insert_block + m_text[idx+1:]
+                      manifest_path.write_text(m_text, encoding="utf-8")
           EOF
+
+          python3 -c '
+          from pathlib import Path
+          lines = Path("/tmp/configure_android.py").read_text(encoding="utf-8").splitlines()
+          cleaned = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
+          Path("/tmp/configure_android.py").write_text(cleaned, encoding="utf-8")
+          '
+          python3 /tmp/configure_android.py
 
       - name: Install dependencies
         run: flutter pub get
