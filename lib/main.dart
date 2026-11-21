@@ -14,7 +14,6 @@ const String kDefaultAdminPass = '1234';
 const String kPrefAdminPass = 'mrjone_admin_pass';
 const String kPrefLoggedIn = 'mrjone_logged_in';
 const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
-
 final List> kDefaultServices = [
   {
     'id': 'def_srv_1',
@@ -172,6 +171,7 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
+
 @pragma('vm:entry-point')
 void _onStartBackground(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
@@ -590,7 +590,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-    Future<void> _openEditBookingDialog(Map b) async {
+     Future<void> _openEditBookingDialog(Map b) async {
     final String firebaseKey = (b['firebaseKey'] ?? '').toString();
     if (firebaseKey.isEmpty) return;
 
@@ -655,6 +655,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               ),
               const SizedBox(height: 6),
               DropdownButtonFormField<int>(
+                isExpanded: true,
                 dropdownColor: const Color(0xFF1B1B20),
                 decoration: const InputDecoration(
                   labelText: 'Escolher da tabela de preços',
@@ -999,8 +1000,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Future<void> _openWhatsApp(Map b) async {
+     Future<void> _openWhatsApp(Map b) async {
     final client = (b['clientName'] ?? 'Cliente').toString();
     final dateLbl = (b['dateLabel'] ?? '').toString();
     final timeLbl = (b['time'] ?? '').toString();
@@ -1075,7 +1075,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     return sum;
   }
-    Widget _buildHeaderBanner() {
+     Widget _buildHeaderBanner() {
     return Container(
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 10),
