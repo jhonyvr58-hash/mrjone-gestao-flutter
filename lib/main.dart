@@ -12,6 +12,7 @@ const String kFirebaseDbUrl =
     'https://barbeariamrjone-f3e8a-default-rtdb.firebaseio.com';
 const String kDefaultAdminPass = '1234';
 const String kPrefAdminPass = 'mrjone_admin_pass';
+const String kPrefLoggedIn = 'mrjone_logged_in';
 const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
 
 final FlutterLocalNotificationsPlugin kNotificationsPlugin =
@@ -219,7 +220,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   @override
   void initState() {
     super.initState();
-    _loadSavedPass();
+    _loadSavedSessionAndPass();
   }
 
   @override
@@ -230,17 +231,31 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     super.dispose();
   }
 
-  Future<void> _loadSavedPass() async {
+  void _startActiveSession() {
+    _syncAll();
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) => _fetchBookings(silent: true),
+    );
+  }
+
+  Future<void> _loadSavedSessionAndPass() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(kPrefAdminPass);
-    if (saved != null && saved.trim().isNotEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _adminPass = saved.trim();
-        _newPassController.text = _adminPass;
-      });
-    } else {
+    final savedPass = prefs.getString(kPrefAdminPass);
+    final wasLoggedIn = prefs.getBool(kPrefLoggedIn) ?? false;
+
+    if (!mounted) return;
+    setState(() {
+      if (savedPass != null && savedPass.trim().isNotEmpty) {
+        _adminPass = savedPass.trim();
+      }
       _newPassController.text = _adminPass;
+      _unlocked = wasLoggedIn;
+    });
+
+    if (wasLoggedIn) {
+      _startActiveSession();
     }
   }
 
@@ -264,20 +279,30 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
-  void _checkPass() {
+  Future<void> _checkPass() async {
     if (_passController.text.trim() == _adminPass) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kPrefLoggedIn, true);
+      if (!mounted) return;
       setState(() => _unlocked = true);
-      _syncAll();
-      _pollTimer?.cancel();
-      _pollTimer = Timer.periodic(
-        const Duration(seconds: 25),
-        (_) => _fetchBookings(silent: true),
-      );
+      _startActiveSession();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Senha incorreta.')),
       );
     }
+  }
+
+  Future<void> _logoutAccount() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(kPrefLoggedIn, false);
+    _pollTimer?.cancel();
+    _passController.clear();
+    if (!mounted) return;
+    setState(() {
+      _unlocked = false;
+      _tabIndex = 0;
+    });
   }
 
   Future<void> _syncAll() async {
@@ -1352,6 +1377,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 const SizedBox(height: 8),
                 TextField(
                   controller: _newPassController,
+                  keyboardType: TextInputType.visiblePassword,
                   decoration: const InputDecoration(labelText: 'Nova senha'),
                 ),
                 const SizedBox(height: 10),
@@ -1364,6 +1390,22 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   child: const Text('Salvar Senha'),
                 ),
               ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          color: const Color(0xFF141417),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                side: const BorderSide(color: Colors.redAccent),
+              ),
+              onPressed: _logoutAccount,
+              icon: const Icon(Icons.logout),
+              label: const Text('Sair da conta'),
             ),
           ),
         ),
@@ -1398,7 +1440,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               TextField(
                 controller: _passController,
                 obscureText: true,
-                keyboardType: TextInputType.number,
+                keyboardType: TextInputType.visiblePassword,
+                onSubmitted: (_) => _checkPass(),
                 decoration: const InputDecoration(
                   labelText: 'Digite sua senha de acesso',
                   border: OutlineInputBorder(),
