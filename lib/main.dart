@@ -1,13 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const String kFirebaseDbUrl =
     'https://barbeariamrjone-f3e8a-default-rtdb.firebaseio.com';
 const String kDefaultAdminPass = '1234';
+const String kPrefAdminPass = 'mrjone_admin_pass';
+const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
 
 final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -27,26 +32,116 @@ Future<void> _initNotifications() async {
   await androidImpl?.requestNotificationsPermission();
 }
 
-Future<void> _showBookingNotification(String title, String body, int id) async {
-  const AndroidNotificationDetails androidDetails =
-      AndroidNotificationDetails(
-    'mrjone_bookings_channel',
-    'Novos Agendamentos',
-    channelDescription: 'Avisos quando um cliente faz um novo agendamento',
-    importance: Importance.max,
-    priority: Priority.high,
-    playSound: true,
+Future<void> _showBookingNotification(
+  String title,
+  String body,
+  int id, {
+  bool ongoing = false,
+}) async {
+  final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+    ongoing ? 'mrjone_bg_monitor' : 'mrjone_bookings_channel',
+    ongoing ? 'Monitoramento Mr Jone' : 'Novos Agendamentos',
+    channelDescription: ongoing
+        ? 'Mantem o monitoramento ativo com o app fechado'
+        : 'Avisos quando um cliente faz um novo agendamento',
+    importance: ongoing ? Importance.low : Importance.max,
+    priority: ongoing ? Priority.low : Priority.high,
+    playSound: !ongoing,
+    enableVibration: !ongoing,
+    ongoing: ongoing,
   );
 
-  const NotificationDetails details =
+  final NotificationDetails details =
       NotificationDetails(android: androidDetails);
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
 
+@pragma('vm:entry-point')
+void _onStartBackground(ServiceInstance service) async {
+  DartPluginRegistrant.ensureInitialized();
+  await _initNotifications();
+
+  Future<void> checkNewBookingsBg() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedList = prefs.getStringList(kPrefKnownBookingKeys) ?? [];
+      final knownSet = Set.from(savedList);
+
+      final uri = Uri.parse(
+        '$kFirebaseDbUrl/bookings.json?t=${DateTime.now().millisecondsSinceEpoch}',
+      );
+      final res = await http.get(uri);
+      if (res.statusCode == 200 && res.body != 'null') {
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map) {
+          final List currentKeys = [];
+          final List brandNew = [];
+
+          decoded.forEach((key, val) {
+            if (val is Map) {
+              final k = key.toString();
+              currentKeys.add(k);
+              if (savedList.isNotEmpty && !knownSet.contains(k)) {
+                final item = Map.from(val);
+                item['firebaseKey'] = k;
+                brandNew.add(item);
+              }
+            }
+          });
+
+          int notifId = 500;
+          for (final novo in brandNew) {
+            final client = (novo['clientName'] ?? 'Cliente').toString();
+            final dateLbl = (novo['dateLabel'] ?? '').toString();
+            final timeLbl = (novo['time'] ?? '').toString();
+            final barber =
+                (novo['barberName'] ?? 'Barbearia Mr Jone').toString();
+            await _showBookingNotification(
+              'Novo agendamento • $client',
+              '$dateLbl às $timeLbl ($barber)',
+              notifId++,
+            );
+          }
+
+          await prefs.setStringList(kPrefKnownBookingKeys, currentKeys);
+        }
+      }
+    } catch (_) {}
+  }
+
+  await checkNewBookingsBg();
+
+  Timer.periodic(const Duration(seconds: 30), (_) async {
+    await checkNewBookingsBg();
+  });
+}
+
+Future<void> _initBackgroundService() async {
+  final service = FlutterBackgroundService();
+  await service.configure(
+    androidConfiguration: AndroidConfiguration(
+      onStart: _onStartBackground,
+      autoStart: true,
+      isForegroundMode: true,
+      notificationChannelId: 'mrjone_bg_monitor',
+      initialNotificationTitle: 'Gestão Mr Jone Ativa',
+      initialNotificationContent:
+          'Monitorando novos agendamentos mesmo fechado',
+      foregroundServiceNotificationId: 888,
+    ),
+    iosConfiguration: IosConfiguration(
+      autoStart: false,
+      onForeground: _onStartBackground,
+    ),
+  );
+  await service.startService();
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _initNotifications();
+  await _initBackgroundService();
   runApp(const MrJoneGestaoApp());
 }
 
@@ -85,8 +180,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   String _adminPass = kDefaultAdminPass;
 
   final TextEditingController _passController = TextEditingController();
+  final TextEditingController _newPassController = TextEditingController();
 
   List _bookings = [];
+  List _newAlerts = [];
   List _services = [];
   List _plans = [];
   List _barbers = [];
@@ -96,10 +193,51 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   Timer? _pollTimer;
 
   @override
+  void initState() {
+    super.initState();
+    _loadSavedPass();
+  }
+
+  @override
   void dispose() {
     _pollTimer?.cancel();
     _passController.dispose();
+    _newPassController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSavedPass() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(kPrefAdminPass);
+    if (saved != null && saved.trim().isNotEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _adminPass = saved.trim();
+        _newPassController.text = _adminPass;
+      });
+    } else {
+      _newPassController.text = _adminPass;
+    }
+  }
+
+  Future<void> _saveNewAdminPass(String newPass) async {
+    final clean = newPass.trim();
+    if (clean.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Digite uma senha válida.')),
+      );
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kPrefAdminPass, clean);
+    if (!mounted) return;
+    setState(() {
+      _adminPass = clean;
+      _newPassController.text = clean;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Nova senha salva com sucesso!')),
+    );
   }
 
   void _checkPass() {
@@ -144,6 +282,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     }
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedKeys = prefs.getStringList(kPrefKnownBookingKeys) ?? [];
+      for (final sk in savedKeys) {
+        _knownKeys.add(sk);
+      }
+
       final uri = Uri.parse(
         '$kFirebaseDbUrl/bookings.json?t=${DateTime.now().millisecondsSinceEpoch}',
       );
@@ -152,11 +296,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         final decoded = jsonDecode(res.body);
         final List loaded = [];
         final List brandNew = [];
+        final List allKeys = [];
 
         if (decoded is Map) {
           decoded.forEach((key, val) {
             if (val is Map) {
               final k = key.toString();
+              allKeys.add(k);
               final item = Map.from(val);
               item['firebaseKey'] = k;
               loaded.add(item);
@@ -169,6 +315,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           });
         }
 
+        await prefs.setStringList(kPrefKnownBookingKeys, allKeys);
         _firstLoadDone = true;
 
         int notifId = 100;
@@ -191,6 +338,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         if (!mounted) return;
         setState(() {
           _bookings = loaded;
+          if (brandNew.isNotEmpty) {
+            _newAlerts = List.from(brandNew)..addAll(_newAlerts);
+          }
           _statusMsg = 'Online • ${loaded.length} registro(s)';
         });
       } else {
@@ -293,7 +443,178 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-     Future<void> _saveCatalogItem({
+     Future<void> _openEditBookingDialog(Map b) async {
+    final String firebaseKey = (b['firebaseKey'] ?? '').toString();
+    if (firebaseKey.isEmpty) return;
+
+    String currentServiceName = '';
+    double currentPrice = 0;
+    bool currentIsPlan = false;
+    int currentSessions = 4;
+
+    if (b['items'] is List && (b['items'] as List).isNotEmpty) {
+      final first = (b['items'] as List).first;
+      if (first is Map) {
+        currentServiceName = (first['name'] ?? '').toString();
+        currentPrice = double.tryParse('${first['price'] ?? 0}') ?? 0;
+        currentIsPlan = first['isPlan'] == true;
+        currentSessions = int.tryParse('${first['sessionsPerMonth'] ?? 4}') ?? 4;
+      }
+    }
+
+    final srvCtrl = TextEditingController(text: currentServiceName);
+    final priceCtrl = TextEditingController(text: currentPrice.toStringAsFixed(2));
+    final dateCtrl = TextEditingController(text: (b['dateLabel'] ?? '').toString());
+    final timeCtrl = TextEditingController(text: (b['time'] ?? '').toString());
+    final barberCtrl =
+        TextEditingController(text: (b['barberName'] ?? 'Mr. Jone').toString());
+
+    final List allOptions = [];
+    for (final s in _services) {
+      allOptions.add({
+        'name': (s['name'] ?? '').toString(),
+        'price': double.tryParse('${s['price'] ?? 0}') ?? 0,
+        'isPlan': false,
+        'sessionsPerMonth': 1,
+      });
+    }
+    for (final p in _plans) {
+      allOptions.add({
+        'name': (p['name'] ?? '').toString(),
+        'price': double.tryParse('${p['price'] ?? 0}') ?? 0,
+        'isPlan': true,
+        'sessionsPerMonth': int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4,
+      });
+    }
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141417),
+        title: Text(
+          'Editar • ${b['clientName'] ?? 'Cliente'}',
+          style: const TextStyle(color: Color(0xFFF3D97E)),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (allOptions.isNotEmpty) ...[
+                const Text(
+                  'Trocar pelo catálogo:',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<int>(
+                  dropdownColor: const Color(0xFF1B1B20),
+                  decoration: const InputDecoration(
+                    labelText: 'Selecionar serviço/plano',
+                  ),
+                  items: [
+                    for (var i = 0; i < allOptions.length; i++)
+                      DropdownMenuItem<int>(
+                        value: i,
+                        child: Text(
+                          '${allOptions[i]['name']} (R\$ ${(allOptions[i]['price'] as double).toStringAsFixed(2)})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (idx) {
+                    if (idx == null) return;
+                    final opt = allOptions[idx];
+                    srvCtrl.text = opt['name'].toString();
+                    priceCtrl.text =
+                        (opt['price'] as double).toStringAsFixed(2);
+                    currentIsPlan = opt['isPlan'] == true;
+                    currentSessions =
+                        int.tryParse('${opt['sessionsPerMonth'] ?? 4}') ?? 4;
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
+              TextField(
+                controller: srvCtrl,
+                decoration: const InputDecoration(labelText: 'Serviço / Plano'),
+              ),
+              TextField(
+                controller: priceCtrl,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Valor (R\$)'),
+              ),
+              TextField(
+                controller: dateCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Data (ex: 22/11/2026 (Dom))',
+                ),
+              ),
+              TextField(
+                controller: timeCtrl,
+                decoration: const InputDecoration(labelText: 'Horário (ex: 10:30)'),
+              ),
+              TextField(
+                controller: barberCtrl,
+                decoration: const InputDecoration(labelText: 'Barbeiro'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4AF37),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () async {
+              final newService = srvCtrl.text.trim().isEmpty
+                  ? 'Serviço'
+                  : srvCtrl.text.trim();
+              final newPrice =
+                  double.tryParse(priceCtrl.text.replaceAll(',', '.')) ??
+                      currentPrice;
+              final newDate = dateCtrl.text.trim();
+              final newTime = timeCtrl.text.trim();
+              final newBarber = barberCtrl.text.trim().isEmpty
+                  ? 'Mr. Jone'
+                  : barberCtrl.text.trim();
+
+              Navigator.pop(ctx);
+
+              final updatedItems = [
+                {
+                  'name': newService,
+                  'price': newPrice,
+                  'isPlan': currentIsPlan,
+                  'sessionsPerMonth': currentSessions,
+                }
+              ];
+
+              await http.patch(
+                Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  'items': updatedItems,
+                  'dateLabel': newDate,
+                  'time': newTime,
+                  'barberName': newBarber,
+                }),
+              );
+              await _fetchBookings(silent: true);
+            },
+            child: const Text('Salvar Alterações'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveCatalogItem({
     required bool isPlan,
     String? existingId,
     required String name,
@@ -588,6 +909,49 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             style: const TextStyle(fontSize: 12, color: Colors.white70),
           ),
           const SizedBox(height: 10),
+          if (_newAlerts.isNotEmpty) ...[
+            Card(
+              color: const Color(0xFF231D09),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: Color(0xFFD4AF37), width: 1.2),
+              ),
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'NOVO HORÁRIO MARCADO (${_newAlerts.length})',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFF3D97E),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => setState(() => _newAlerts = []),
+                          child: const Text('Limpar aviso'),
+                        ),
+                      ],
+                    ),
+                    ..._newAlerts.take(5).map((al) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          '• ${al['clientName'] ?? 'Cliente'} marcou para ${al['dateLabel'] ?? ''} às ${al['time'] ?? ''} (${al['barberName'] ?? 'Barbearia Mr Jone'})',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ],
           Row(
             children: [
               Expanded(
@@ -684,6 +1048,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     Wrap(
                       spacing: 8,
                       children: [
+                        TextButton(
+                          onPressed: () => _openEditBookingDialog(b),
+                          child: const Text(
+                            'Editar',
+                            style: TextStyle(color: Color(0xFFF3D97E)),
+                          ),
+                        ),
                         TextButton(
                           onPressed: () => _openWhatsApp(b),
                           child: const Text(
@@ -897,7 +1268,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   Widget _buildSettingsTab() {
-    final newPassCtrl = TextEditingController(text: _adminPass);
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -909,13 +1279,18 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'Notificações & Suporte',
+                  'Monitoramento Mesmo Fechado & Avisos',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Color(0xFFF3D97E),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
+                const Text(
+                  'Dica: no Android, deixe a bateria deste app em "Sem restrição" para o serviço em segundo plano não ser encerrado.',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+                const SizedBox(height: 10),
                 ElevatedButton.icon(
                   onPressed: () => _showBookingNotification(
                     'Teste • Barbearia Mr Jone',
@@ -938,7 +1313,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'Senha do Painel',
+                  'Senha do Painel (Salva no Aparelho)',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Color(0xFFF3D97E),
@@ -946,20 +1321,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 ),
                 const SizedBox(height: 8),
                 TextField(
-                  controller: newPassCtrl,
+                  controller: _newPassController,
                   decoration: const InputDecoration(labelText: 'Nova senha'),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 ElevatedButton(
-                  onPressed: () {
-                    if (newPassCtrl.text.trim().isNotEmpty) {
-                      setState(() => _adminPass = newPassCtrl.text.trim());
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Senha atualizada na sessão.')),
-                      );
-                    }
-                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4AF37),
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed: () => _saveNewAdminPass(_newPassController.text),
                   child: const Text('Salvar Senha'),
                 ),
               ],
@@ -999,7 +1370,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 obscureText: true,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: 'Senha de acesso (padrão: 1234)',
+                  labelText: 'Digite sua senha de acesso',
                   border: OutlineInputBorder(),
                 ),
               ),
