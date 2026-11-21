@@ -14,8 +14,7 @@ const String kDefaultAdminPass = '1234';
 const String kPrefAdminPass = 'mrjone_admin_pass';
 const String kPrefLoggedIn = 'mrjone_logged_in';
 const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
-
-final List> kDefaultServices = [
+final List kDefaultServices = [
   {
     'id': 'def_srv_1',
     'name': 'Máquina Pente Só',
@@ -90,7 +89,7 @@ final List> kDefaultServices = [
   },
 ];
 
-final List> kDefaultPlans = [
+final List kDefaultPlans = [
   {
     'id': 'def_pln_1',
     'name': 'Plano Mensal Corte (4x)',
@@ -171,6 +170,7 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
+
 @pragma('vm:entry-point')
 void _onStartBackground(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
@@ -190,14 +190,14 @@ void _onStartBackground(ServiceInstance service) async {
         final decoded = jsonDecode(res.body);
         if (decoded is Map) {
           final List<String> currentKeys = [];
-          final List> brandNew = [];
+          final List brandNew = [];
 
           decoded.forEach((key, val) {
             if (val is Map) {
               final k = key.toString();
               currentKeys.add(k);
               if (savedList.isNotEmpty && !knownSet.contains(k)) {
-                final item = Map<String, dynamic>.from(val);
+                final item = Map.from(val);
                 item['firebaseKey'] = k;
                 brandNew.add(item);
               }
@@ -251,7 +251,6 @@ Future<void> _initBackgroundService() async {
   );
   await service.startService();
 }
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _initNotifications();
@@ -297,11 +296,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   final TextEditingController _passController = TextEditingController();
   final TextEditingController _newPassController = TextEditingController();
 
-  List> _bookings = [];
-  List> _newAlerts = [];
-  List> _services = [];
-  List> _plans = [];
-  List> _barbers = [];
+  List _bookings = [];
+  List _newAlerts = [];
+  List _services = [];
+  List _plans = [];
+  List _barbers = [];
 
   final Set<String> _knownKeys = {};
   bool _firstLoadDone = false;
@@ -310,8 +309,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   @override
   void initState() {
     super.initState();
-    _services = List>.from(kDefaultServices);
-    _plans = List>.from(kDefaultPlans);
+    _services = List.from(kDefaultServices);
+    _plans = List.from(kDefaultPlans);
     _loadSavedSessionAndPass();
   }
 
@@ -322,7 +321,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     _newPassController.dispose();
     super.dispose();
   }
-      void _startActiveSession() {
+
+  void _startActiveSession() {
     _syncAll();
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
@@ -395,7 +395,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-      Future<void> _syncAll() async {
+     Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'Sincronizando dados com o Firebase...';
@@ -431,8 +431,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       final res = await http.get(uri);
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
-        final List> loaded = [];
-        final List> brandNew = [];
+        final List loaded = [];
+        final List brandNew = [];
         final List<String> allKeys = [];
 
         if (decoded is Map) {
@@ -440,7 +440,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             if (val is Map) {
               final k = key.toString();
               allKeys.add(k);
-              final item = Map<String, dynamic>.from(val);
+              final item = Map.from(val);
               item['firebaseKey'] = k;
               loaded.add(item);
 
@@ -499,15 +499,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       final srvRes = await http.get(Uri.parse('$kFirebaseDbUrl/services.json'));
       final plnRes = await http.get(Uri.parse('$kFirebaseDbUrl/plans.json'));
 
-      final List> srvList = [];
-      final List> plnList = [];
+      final List srvList = [];
+      final List plnList = [];
 
       if (srvRes.statusCode == 200 && srvRes.body != 'null') {
         final d = jsonDecode(srvRes.body);
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map<String, dynamic>.from(v);
+              final item = Map.from(v);
               item['id'] = k.toString();
               srvList.add(item);
             }
@@ -515,7 +515,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         } else if (d is List) {
           for (var i = 0; i < d.length; i++) {
             if (d[i] is Map) {
-              final item = Map<String, dynamic>.from(d[i] as Map);
+              final item = Map.from(d[i] as Map);
               item['id'] = i.toString();
               srvList.add(item);
             }
@@ -528,7 +528,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map<String, dynamic>.from(v);
+              final item = Map.from(v);
               item['id'] = k.toString();
               plnList.add(item);
             }
@@ -536,7 +536,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         } else if (d is List) {
           for (var i = 0; i < d.length; i++) {
             if (d[i] is Map) {
-              final item = Map<String, dynamic>.from(d[i] as Map);
+              final item = Map.from(d[i] as Map);
               item['id'] = i.toString();
               plnList.add(item);
             }
@@ -548,10 +548,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() {
         _services = srvList.isNotEmpty
             ? srvList
-            : List>.from(kDefaultServices);
+            : List.from(kDefaultServices);
         _plans = plnList.isNotEmpty
             ? plnList
-            : List>.from(kDefaultPlans);
+            : List.from(kDefaultPlans);
       });
     } catch (_) {}
   }
@@ -559,13 +559,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   Future<void> _fetchBarbers() async {
     try {
       final res = await http.get(Uri.parse('$kFirebaseDbUrl/barbers.json'));
-      final List> list = [];
+      final List list = [];
       if (res.statusCode == 200 && res.body != 'null') {
         final d = jsonDecode(res.body);
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map<String, dynamic>.from(v);
+              final item = Map.from(v);
               item['id'] = k.toString();
               list.add(item);
             }
@@ -573,7 +573,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         } else if (d is List) {
           for (var i = 0; i < d.length; i++) {
             if (d[i] is Map) {
-              final item = Map<String, dynamic>.from(d[i] as Map);
+              final item = Map.from(d[i] as Map);
               item['id'] = i.toString();
               list.add(item);
             }
@@ -584,8 +584,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-      List> _buildCatalogOptions() {
-    final List> options = [];
+     List _buildCatalogOptions() {
+    final List options = [];
     for (final s in _services) {
       options.add({
         'name': (s['name'] ?? '').toString(),
@@ -605,7 +605,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return options;
   }
 
-  Future<void> _openEditBookingDialog(Map<String, dynamic> b) async {
+  Future<void> _openEditBookingDialog(Map b) async {
     final String firebaseKey = (b['firebaseKey'] ?? '').toString();
     if (firebaseKey.isEmpty) return;
 
@@ -633,7 +633,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final barberCtrl =
         TextEditingController(text: (b['barberName'] ?? 'Mr. Jone').toString());
 
-    final List> allOptions = _buildCatalogOptions();
+    final List allOptions = _buildCatalogOptions();
 
     await showDialog(
       context: context,
@@ -852,7 +852,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
   Future<void> _openCatalogDialog({
     required bool isPlan,
-    Map<String, dynamic>? item,
+    Map? item,
   }) async {
     final nameCtrl =
         TextEditingController(text: (item?['name'] ?? '').toString());
@@ -937,7 +937,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
-  Future<void> _openBarberDialog({Map<String, dynamic>? barber}) async {
+  Future<void> _openBarberDialog({Map? barber}) async {
     final nameCtrl =
         TextEditingController(text: (barber?['name'] ?? '').toString());
     final roleCtrl =
@@ -1002,7 +1002,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Future<void> _openWhatsApp(Map<String, dynamic> b) async {
+     Future<void> _openWhatsApp(Map b) async {
     final client = (b['clientName'] ?? 'Cliente').toString();
     final dateLbl = (b['dateLabel'] ?? '').toString();
     final timeLbl = (b['time'] ?? '').toString();
@@ -1042,7 +1042,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return isPlan ? (price / (sessions <= 0 ? 4 : sessions)) : price;
   }
 
-  double _calcBookingValue(Map<String, dynamic> b) {
+  double _calcBookingValue(Map b) {
     double sum = 0;
     final items = b['items'];
     if (items is List) {
@@ -1414,7 +1414,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildBarbersTab() {
+     Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
       child: ListView(
