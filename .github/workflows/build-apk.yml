@@ -32,16 +32,11 @@ jobs:
             cp /tmp/pubspec.yaml.bak pubspec.yaml
           fi
 
-          cat << 'EOF' > /tmp/configure_android.py
+          python3 - <<'PY'
           from pathlib import Path
 
-          for path_str in ["android/app/build.gradle.kts", "android/app/build.gradle"]:
-              p = Path(path_str)
-              if not p.exists():
-                  continue
-              text = p.read_text(encoding="utf-8")
-
-              if path_str.endswith(".kts"):
+          def enable_desugaring(text: str, is_kts: bool) -> str:
+              if is_kts:
                   if "isCoreLibraryDesugaringEnabled" not in text:
                       if "compileOptions {" in text:
                           text = text.replace(
@@ -55,13 +50,12 @@ jobs:
                               "compileOptions{\n        isCoreLibraryDesugaringEnabled = true",
                               1,
                           )
-                  if "coreLibraryDesugaring(" not in text:
-                      if "dependencies {" in text:
-                          text = text.replace(
-                              "dependencies {",
-                              'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")',
-                              1,
-                          )
+                  if "coreLibraryDesugaring(" not in text and "dependencies {" in text:
+                      text = text.replace(
+                          "dependencies {",
+                          'dependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")',
+                          1,
+                      )
               else:
                   if "coreLibraryDesugaringEnabled" not in text:
                       if "compileOptions {" in text:
@@ -76,15 +70,20 @@ jobs:
                               "compileOptions{\n        coreLibraryDesugaringEnabled true",
                               1,
                           )
-                  if "coreLibraryDesugaring " not in text:
-                      if "dependencies {" in text:
-                          text = text.replace(
-                              "dependencies {",
-                              "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'",
-                              1,
-                          )
+                  if "coreLibraryDesugaring " not in text and "dependencies {" in text:
+                      text = text.replace(
+                          "dependencies {",
+                          "dependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'",
+                          1,
+                      )
+              return text
 
-              p.write_text(text, encoding="utf-8")
+          for path_str in ["android/app/build.gradle.kts", "android/app/build.gradle"]:
+              p = Path(path_str)
+              if p.exists():
+                  original = p.read_text(encoding="utf-8")
+                  updated = enable_desugaring(original, path_str.endswith(".kts"))
+                  p.write_text(updated, encoding="utf-8")
 
           manifest_path = Path("android/app/src/main/AndroidManifest.xml")
           if manifest_path.exists():
@@ -100,15 +99,7 @@ jobs:
                       insert_block = "\n    " + "\n    ".join(perms)
                       m_text = m_text[:idx+1] + insert_block + m_text[idx+1:]
                       manifest_path.write_text(m_text, encoding="utf-8")
-          EOF
-
-          python3 -c '
-          from pathlib import Path
-          lines = Path("/tmp/configure_android.py").read_text(encoding="utf-8").splitlines()
-          cleaned = "\n".join(line[10:] if line.startswith("          ") else line for line in lines)
-          Path("/tmp/configure_android.py").write_text(cleaned, encoding="utf-8")
-          '
-          python3 /tmp/configure_android.py
+          PY
 
       - name: Install dependencies
         run: flutter pub get
