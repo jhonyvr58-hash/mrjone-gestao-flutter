@@ -206,7 +206,7 @@ Future<void> _initNotifications() async {
   const AndroidNotificationChannel bgChannel = AndroidNotificationChannel(
     'mrjone_bg_monitor',
     'Monitoramento Mr Jone',
-    description: 'Mantém o monitoramento ativo com o app fechado',
+    description: 'Mantém a monitorização ativa mesmo com o app fechado',
     importance: Importance.low,
     playSound: false,
     enableVibration: false,
@@ -236,7 +236,7 @@ Future<void> _showBookingNotification(
     ongoing ? 'mrjone_bg_monitor' : 'mrjone_bookings_channel',
     ongoing ? 'Monitoramento Mr Jone' : 'Novos Agendamentos',
     channelDescription: ongoing
-        ? 'Mantém o monitoramento ativo com o app fechado'
+        ? 'Mantém a monitorização ativa mesmo com o app fechado'
         : 'Avisos quando um cliente faz um novo agendamento',
     importance: ongoing ? Importance.low : Importance.max,
     priority: ongoing ? Priority.low : Priority.high,
@@ -321,7 +321,7 @@ Future<void> _initBackgroundService() async {
       notificationChannelId: 'mrjone_bg_monitor',
       initialNotificationTitle: 'Barbearia Mr Jone • Gestão Ativa',
       initialNotificationContent:
-          'Monitorando agendamentos mesmo com o app fechado',
+          'A monitorizar agendamentos mesmo com o app fechado',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -371,7 +371,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   bool _loading = false;
   int _tabIndex = 0;
   bool _onlyCompletedInAccounting = false;
-  String _statusMsg = 'Aguardando conexão com o Firebase';
+  String _statusMsg = 'A aguardar ligação ao Firebase';
   String _adminPass = kDefaultAdminPass;
   int _slotStepMinutes = 15;
 
@@ -596,8 +596,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-
-  Future<void> _syncAll() async {
+      Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'A sincronizar dados com o Firebase...';
@@ -696,7 +695,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
   }
-     Future<void> _fetchCatalog() async {
+
+  Future<void> _fetchCatalog() async {
     try {
       final srvRes = await http.get(Uri.parse('$kFirebaseDbUrl/services.json'));
       final plnRes = await http.get(Uri.parse('$kFirebaseDbUrl/plans.json'));
@@ -782,8 +782,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-
-  double _getBarberCommissionPct(String? barberName) {
+      double _getBarberCommissionPct(String? barberName) {
     final target = (barberName ?? '').trim().toLowerCase();
     if (target.isNotEmpty) {
       for (final b in _barbers) {
@@ -958,6 +957,32 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
+  Future<void> _marcarNaoConcluido(Map b) async {
+    final String firebaseKey = (b['firebaseKey'] ?? '').toString();
+    if (firebaseKey.isEmpty) return;
+
+    final String client = (b['clientName'] ?? 'Cliente').toString();
+
+    await http.patch(
+      Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'status': 'não concluído',
+        'attended': false,
+        'completedAt': null,
+      }),
+    );
+
+    await _fetchBookings(silent: true);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$client marcado como não concluído.'),
+      ),
+    );
+  }
+
   Future<void> _updateStatus(String firebaseKey, String newStatus) async {
     if (firebaseKey.isEmpty) return;
     await http.patch(
@@ -973,7 +998,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     await http.delete(Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'));
     await _fetchBookings(silent: true);
   }
-     Future<void> _openManualEntryDialog() async {
+      Future<void> _openManualEntryDialog() async {
     final clientCtrl = TextEditingController(text: 'Cliente Balcão');
     String selectedBarberName = _barbers.isNotEmpty
         ? (_barbers.first['name'] ?? 'Mr. Jone').toString()
@@ -1373,8 +1398,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     }
   }
-
-  Future<void> _saveBarber({
+      Future<void> _saveBarber({
     String? existingId,
     required String name,
     required String role,
@@ -1636,7 +1660,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-     Widget _buildHeaderBanner() {
+
+  Widget _buildHeaderBanner() {
     return Container(
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 10),
@@ -1672,8 +1697,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Widget _buildAccountingTab() {
+      Widget _buildAccountingTab() {
     final double receita =
         _totalReceita(onlyCompleted: _onlyCompletedInAccounting);
     final double totalComissao =
@@ -1830,7 +1854,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 style: TextStyle(fontSize: 13),
               ),
               subtitle: const Text(
-                'Ao clicar em Concluir, o cliente fica registado como atendido e a comissão entra no total do barbeiro.',
+                'Ao clicar em Concluir ou Não concluído, o total e a comissão do barbeiro são atualizados.',
                 style: TextStyle(fontSize: 11, color: Colors.white70),
               ),
               value: _onlyCompletedInAccounting,
@@ -1911,6 +1935,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                                   : const Color(0xFFF3D97E),
                               fontWeight: FontWeight.bold,
                             ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => _marcarNaoConcluido(b),
+                          child: const Text(
+                            'Não concluído',
+                            style: TextStyle(color: Colors.orangeAccent),
                           ),
                         ),
                         TextButton(
@@ -2047,8 +2078,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Widget _buildExpedienteTab() {
+      Widget _buildExpedienteTab() {
     final ordem = ['1', '2', '3', '4', '5', '6', '0'];
     return ListView(
       padding: const EdgeInsets.all(14),
@@ -2154,7 +2184,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-     Widget _buildBarbersTab() {
+
+  Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
       child: ListView(
