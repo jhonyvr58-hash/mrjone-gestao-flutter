@@ -370,7 +370,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   bool _loading = false;
   int _tabIndex = 0;
 
-  /// Por padrão, conta APENAS atendimentos "concluído" (não conta "não concluído").
   bool _onlyCompletedInAccounting = true;
   String _barberReportPeriod = 'mensal'; // 'semanal' ou 'mensal'
 
@@ -476,7 +475,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _startActiveSession();
     }
   }
-      Future<void> _saveExpedienteAndSync() async {
+     Future<void> _saveExpedienteAndSync() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kPrefExpediente, jsonEncode(_expediente));
     await prefs.setInt(kPrefSlotStep, _slotStepMinutes);
@@ -599,7 +598,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-      Future<void> _syncAll() async {
+     Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'A sincronizar dados com o Firebase...';
@@ -785,33 +784,192 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
+    int? _timeToMinutes(String raw) {
+    final clean = raw.trim();
+    if (clean.isEmpty) return null;
+    final parts = clean.split(':');
+    if (parts.length < 2) return null;
+    final h = int.tryParse(parts[0].trim());
+    final m = int.tryParse(parts[1].trim());
+    if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) {
+      return null;
+    }
+    return h * 60 + m;
+  }
+
+  String _minutesToTime(int mins) {
+    final clamped = mins.clamp(0, 23 * 60 + 59);
+    final h = (clamped ~/ 60).toString().padLeft(2, '0');
+    final m = (clamped % 60).toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  DateTime? _parseDateString(String raw) {
+    final clean = raw.trim();
+    if (clean.isEmpty) return null;
+    final slash = clean.split('/');
+    if (slash.length == 3) {
+      final d = int.tryParse(slash[0].trim());
+      final m = int.tryParse(slash[1].trim());
+      int? y = int.tryParse(slash[2].trim());
+      if (y != null && y < 100) y += 2000;
+      if (d != null && m != null && y != null) {
+        return DateTime(y, m, d);
+      }
+    }
+    final dash = clean.split('-');
+    if (dash.length == 3) {
+      final y = int.tryParse(dash[0].trim());
+      final m = int.tryParse(dash[1].trim());
+      final d = int.tryParse(dash[2].trim());
+      if (d != null && m != null && y != null) {
+        return DateTime(y, m, d);
+      }
+    }
+    return null;
+  }
+
+  String _expedienteKeyForDate(DateTime dt) {
+    if (dt.weekday == DateTime.sunday) return '0';
+    return dt.weekday.toString();
+  }
+
+  int _bookingDurationMinutes(Map b) {
+    if (b['items'] is List && (b['items'] as List).isNotEmpty) {
+      int total = 0;
+      for (final it in b['items'] as List) {
+        if (it is Map) {
+          total += int.tryParse('${it['duration'] ?? 30}') ?? 30;
+        }
+      }
+      if (total > 0) return total;
+    }
+    return int.tryParse('${b['duration'] ?? 30}') ?? 30;
+  }
+
+  bool _sameBarberName(String? a, String? b) {
+    final x = (a ?? '').trim().toLowerCase();
+    final y = (b ?? '').trim().toLowerCase();
+    if (x.isEmpty || y.isEmpty) return true;
+    return x == y || x.contains(y) || y.contains(x);
+  }
+
+  List<String> _getAvailableSlots({
+    required String dateStr,
+    required String barberName,
+    required int serviceDurationMin,
+    String? ignoreBookingKey,
+  }) {
+    final dt = _parseDateString(dateStr);
+    if (dt == null) return [];
+
+    final expKey = _expedienteKeyForDate(dt);
+    final dayExp = _expediente[expKey];
+    if (dayExp == null || dayExp['ativo'] != true) {
+      return [];
+    }
+
+    final List<List<int>> windows = [];
+    final t1Start = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
+    final t1End = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
+    if (t1Start != null && t1End != null && t1End > t1Start) {
+      windows.add([t1Start, t1End]);
+    }
+
+    if (dayExp['t2Ativo'] == true) {
+      final t2Start =
+          _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
+      final t2End = _timeToMinutes((dayExp['t2Fim'] ?? '19:30').toString());
+      if (t2Start != null && t2End != null && t2End > t2Start) {
+        windows.add([t2Start, t2End]);
+      }
+    }
+
+    final List<List<int>> blockedIntervals = [];
+    final targetDay = DateTime(dt.year, dt.month, dt.day);
+
+    for (final p in _pauses) {
+      if (p is! Map) continue;
+      final pDt = _parseDateString((p['date'] ?? '').toString());
+      if (pDt != null &&
+          DateTime(pDt.year, pDt.month, pDt.day) != targetDay) {
+        continue;
+      }
+      final ps = _timeToMinutes((p['start'] ?? '').toString());
+      final pe = _timeToMinutes((p['end'] ?? '').toString());
+      if (ps != null && pe != null && pe > ps) {
+        blockedIntervals.add([ps, pe]);
+      }
+    }
+
+    for (final b in _bookings) {
+      if (b is! Map) continue;
+      final bKey = (b['firebaseKey'] ?? '').toString();
+      if (ignoreBookingKey != null &&
+          ignoreBookingKey.isNotEmpty &&
+          bKey == ignoreBookingKey) {
+        continue;
+      }
+
+      final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
+      if (st == 'cancelado') continue;
+
+      final bDt = _parseDateString((b['dateLabel'] ?? b['date'] ?? '').toString());
+      if (bDt == null) continue;
+      if (DateTime(bDt.year, bDt.month, bDt.day) != targetDay) continue;
+
+      if (!_sameBarberName(b['barberName']?.toString(), barberName)) continue;
+
+      final startMin = _timeToMinutes((b['time'] ?? '').toString());
+      if (startMin == null) continue;
+      final dur = _bookingDurationMinutes(b);
+      blockedIntervals.add([startMin, startMin + dur]);
+    }
+
+    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
+    final int neededDur = serviceDurationMin <= 0 ? 30 : serviceDurationMin;
+    final List<String> available = [];
+
+    for (final win in windows) {
+      final int winStart = win[0];
+      final int winEnd = win[1];
+
+      for (int candidate = winStart;
+          candidate + neededDur <= winEnd;
+          candidate += step) {
+        final int candidateEnd = candidate + neededDur;
+        bool overlaps = false;
+        for (final blk in blockedIntervals) {
+          final int blkStart = blk[0];
+          final int blkEnd = blk[1];
+          if (candidate < blkEnd && candidateEnd > blkStart) {
+            overlaps = true;
+            break;
+          }
+        }
+        if (!overlaps) {
+          available.add(_minutesToTime(candidate));
+        }
+      }
+    }
+
+    return available;
+  }
       bool _isCompletedStatus(Map b) {
     final st = (b['status'] ?? '').toString().trim().toLowerCase();
     return st == 'concluído' || st == 'concluido';
   }
 
+  bool _isNotCompletedStatus(Map b) {
+    final st = (b['status'] ?? '').toString().trim().toLowerCase();
+    return st == 'não concluído' || st == 'nao concluido';
+  }
+
   DateTime? _parseBookingDate(Map b) {
     final rawDate = (b['dateLabel'] ?? b['date'] ?? '').toString().trim();
     if (rawDate.isNotEmpty) {
-      final slashParts = rawDate.split('/');
-      if (slashParts.length == 3) {
-        final day = int.tryParse(slashParts[0].trim());
-        final month = int.tryParse(slashParts[1].trim());
-        int? year = int.tryParse(slashParts[2].trim());
-        if (year != null && year < 100) year += 2000;
-        if (day != null && month != null && year != null) {
-          return DateTime(year, month, day);
-        }
-      }
-      final dashParts = rawDate.split('-');
-      if (dashParts.length == 3) {
-        final year = int.tryParse(dashParts[0].trim());
-        final month = int.tryParse(dashParts[1].trim());
-        final day = int.tryParse(dashParts[2].trim());
-        if (day != null && month != null && year != null) {
-          return DateTime(year, month, day);
-        }
-      }
+      final parsed = _parseDateString(rawDate);
+      if (parsed != null) return parsed;
     }
 
     final created = (b['createdAt'] ?? '').toString().trim();
@@ -960,13 +1118,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       'bookings': matchedBookings,
     };
   }
-
-  double _barberTotalGenerated(String barberName, {bool onlyCompleted = true}) {
-    final stats = _barberStats(barberName, onlyCompleted: onlyCompleted);
-    return (stats['produced'] as double?) ?? 0;
-  }
-
-  String _buildServiceSummary(Map b) {
+     String _buildServiceSummary(Map b) {
     final List<String> srvNames = [];
     if (b['items'] is List) {
       for (final it in b['items'] as List) {
@@ -980,7 +1132,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return fallback.isEmpty ? 'Atendimento agendado' : fallback;
   }
 
-  Future<void> _openWhatsApp(Map b) async {
+  Future<void> _openWhatsApp(Map b, {bool rescheduled = false}) async {
     final client = (b['clientName'] ?? 'Cliente').toString().trim();
     final dateLbl = (b['dateLabel'] ?? '').toString().trim();
     final timeLbl = (b['time'] ?? '').toString().trim();
@@ -996,8 +1148,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       normalizedPhone = '55$normalizedPhone';
     }
 
-    final reminderText =
-        'Olá $client! Lembrete da Barbearia Mr Jone: marcou o horário das *$timeLbl* em *$dateLbl* para o serviço *$srvSummary* com *$barber*. Estamos à sua espera!';
+    final reminderText = rescheduled
+        ? 'Olá $client! Seu horário na *Barbearia Mr Jone* foi reagendado para *$dateLbl* às *$timeLbl* ($srvSummary com *$barber*). Qualquer dúvida estamos à disposição!'
+        : 'Olá $client! Lembrete da Barbearia Mr Jone: marcou o horário das *$timeLbl* em *$dateLbl* para o serviço *$srvSummary* com *$barber*. Estamos à sua espera!';
 
     final encodedMsg = Uri.encodeComponent(reminderText);
     final Uri waUri = normalizedPhone.length >= 12
@@ -1107,7 +1260,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '$client marcado como não concluído (descontado do caixa e comissão).',
+          '$client marcado como não concluído (mantido na agenda, fora do caixa).',
         ),
       ),
     );
@@ -1125,10 +1278,49 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
   Future<void> _deleteBooking(String firebaseKey) async {
     if (firebaseKey.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141417),
+        title: const Text(
+          'Excluir Agendamento',
+          style: TextStyle(color: Color(0xFFF3D97E)),
+        ),
+        content: const Text(
+          'Deseja excluir permanentemente este agendamento?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _bookings.removeWhere(
+        (item) =>
+            item is Map && (item['firebaseKey'] ?? '').toString() == firebaseKey,
+      );
+    });
+
     await http.delete(Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'));
     await _fetchBookings(silent: true);
   }
-      Future<void> _openManualEntryDialog() async {
+
+  Future<void> _openManualEntryDialog() async {
     final clientCtrl = TextEditingController(text: 'Cliente Balcão');
     String selectedBarberName = _barbers.isNotEmpty
         ? (_barbers.first['name'] ?? 'Mr. Jone').toString()
@@ -1255,9 +1447,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     'barberName': selectedBarberName,
                     'dateLabel': '$dd/$mo/${now.year}',
                     'time': '$hh:$mm',
-                    'status': 'concluído',
-                    'attended': true,
-                    'completedAt': now.toIso8601String(),
+                    'status': 'confirmado',
+                    'attended': false,
+                    'completedAt': null,
                     'createdAt': now.toIso8601String(),
                     'items': [
                       {
@@ -1285,8 +1477,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  List _buildCatalogOptions() {
+     List _buildCatalogOptions() {
     final List options = [];
     for (final s in _services) {
       options.add({
@@ -1340,139 +1531,337 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final barberCtrl =
         TextEditingController(text: (b['barberName'] ?? 'Mr. Jone').toString());
 
+    String selectedStatus = (b['status'] ?? 'confirmado').toString();
+    bool sendWaAfterSave = false;
+
     final List allOptions = _buildCatalogOptions();
+
+    Future<void> pickCustomDate() async {
+      final initialDt = _parseDateString(dateCtrl.text) ?? DateTime.now();
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: initialDt,
+        firstDate: DateTime(2024),
+        lastDate: DateTime(2030),
+      );
+      if (picked != null) {
+        final dd = picked.day.toString().padLeft(2, '0');
+        final mm = picked.month.toString().padLeft(2, '0');
+        dateCtrl.text = '$dd/$mm/${picked.year}';
+      }
+    }
+
+    Future<void> pickCustomTime() async {
+      TimeOfDay initial = const TimeOfDay(hour: 10, minute: 0);
+      final parts = timeCtrl.text.trim().split(':');
+      if (parts.length == 2) {
+        final h = int.tryParse(parts[0]);
+        final m = int.tryParse(parts[1]);
+        if (h != null && m != null && h >= 0 && h < 24 && m >= 0 && m < 60) {
+          initial = TimeOfDay(hour: h, minute: m);
+        }
+      }
+      final picked = await showTimePicker(
+        context: context,
+        initialTime: initial,
+      );
+      if (picked != null) {
+        final hh = picked.hour.toString().padLeft(2, '0');
+        final mm = picked.minute.toString().padLeft(2, '0');
+        timeCtrl.text = '$hh:$mm';
+      }
+    }
 
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF141417),
-        title: Text(
-          'Editar • ${b['clientName'] ?? 'Cliente'}',
-          style: const TextStyle(color: Color(0xFFF3D97E)),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              DropdownButtonFormField<int>(
-                isExpanded: true,
-                dropdownColor: const Color(0xFF1B1B20),
-                decoration: const InputDecoration(
-                  labelText: 'Escolher da tabela de preços',
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setLocal) {
+          final int activeDur =
+              int.tryParse(durCtrl.text.trim()) ?? currentDuration;
+          final List<String> availableSlots = _getAvailableSlots(
+            dateStr: dateCtrl.text,
+            barberName: barberCtrl.text,
+            serviceDurationMin: activeDur,
+            ignoreBookingKey: firebaseKey,
+          );
+
+          return AlertDialog(
+            backgroundColor: const Color(0xFF141417),
+            title: Text(
+              'Reagendar • ${b['clientName'] ?? 'Cliente'}',
+              style: const TextStyle(color: Color(0xFFF3D97E)),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButtonFormField<int>(
+                    isExpanded: true,
+                    dropdownColor: const Color(0xFF1B1B20),
+                    decoration: const InputDecoration(
+                      labelText: 'Escolher da tabela de preços',
+                    ),
+                    items: [
+                      for (var i = 0; i < allOptions.length; i++)
+                        DropdownMenuItem<int>(
+                          value: i,
+                          child: Text(
+                            '${allOptions[i]['name']} (R\$ ${(allOptions[i]['price'] as double).toStringAsFixed(2)} • ${allOptions[i]['duration']} min)',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (idx) {
+                      if (idx == null) return;
+                      final opt = allOptions[idx];
+                      setLocal(() {
+                        srvCtrl.text = opt['name'].toString();
+                        priceCtrl.text =
+                            (opt['price'] as double).toStringAsFixed(2);
+                        durCtrl.text = '${opt['duration'] ?? 30}';
+                        currentIsPlan = opt['isPlan'] == true;
+                        currentSessions =
+                            int.tryParse('${opt['sessionsPerMonth'] ?? 4}') ??
+                                4;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: srvCtrl,
+                    decoration:
+                        const InputDecoration(labelText: 'Serviço / Plano'),
+                  ),
+                  TextField(
+                    controller: priceCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(labelText: 'Valor (R\$)'),
+                  ),
+                  TextField(
+                    controller: durCtrl,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setLocal(() {}),
+                    decoration:
+                        const InputDecoration(labelText: 'Duração (minutos)'),
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: dateCtrl,
+                          onChanged: (_) => setLocal(() {}),
+                          decoration: const InputDecoration(
+                            labelText: 'Data (dd/mm/aaaa)',
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Escolher data',
+                        icon: const Icon(Icons.calendar_today,
+                            color: Color(0xFFD4AF37)),
+                        onPressed: () async {
+                          await pickCustomDate();
+                          setLocal(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                  TextField(
+                    controller: barberCtrl,
+                    onChanged: (_) => setLocal(() {}),
+                    decoration: const InputDecoration(labelText: 'Barbeiro'),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'HORÁRIOS DISPONÍVEIS (TOQUE PARA ESCOLHER):',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFF3D97E),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  if (availableSlots.isEmpty)
+                    const Text(
+                      'Sem horários livres para essa data/barbeiro/duração (ou dia fechado). Pode escolher hora manual abaixo.',
+                      style: TextStyle(fontSize: 11, color: Colors.orangeAccent),
+                    )
+                  else
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: availableSlots.map((slot) {
+                        final bool isChosen = timeCtrl.text.trim() == slot;
+                        return ChoiceChip(
+                          label: Text(
+                            slot,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isChosen ? Colors.black : Colors.white,
+                              fontWeight:
+                                  isChosen ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          selected: isChosen,
+                          selectedColor: const Color(0xFFD4AF37),
+                          backgroundColor: const Color(0xFF1E1E24),
+                          onSelected: (_) {
+                            setLocal(() => timeCtrl.text = slot);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: timeCtrl,
+                          onChanged: (_) => setLocal(() {}),
+                          decoration: const InputDecoration(
+                            labelText: 'Horário escolhido (HH:MM)',
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Escolher hora exata',
+                        icon: const Icon(Icons.access_time,
+                            color: Color(0xFFD4AF37)),
+                        onPressed: () async {
+                          await pickCustomTime();
+                          setLocal(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: [
+                      'confirmado',
+                      'concluído',
+                      'não concluído',
+                      'cancelado',
+                    ].contains(selectedStatus.toLowerCase())
+                        ? selectedStatus.toLowerCase()
+                        : 'confirmado',
+                    dropdownColor: const Color(0xFF1B1B20),
+                    decoration: const InputDecoration(labelText: 'Status'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'confirmado', child: Text('Confirmado')),
+                      DropdownMenuItem(
+                          value: 'concluído', child: Text('Concluído')),
+                      DropdownMenuItem(
+                          value: 'não concluído', child: Text('Não concluído')),
+                      DropdownMenuItem(
+                          value: 'cancelado', child: Text('Cancelado')),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setLocal(() => selectedStatus = v);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Avisar cliente no WhatsApp sobre o novo horário',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    value: sendWaAfterSave,
+                    activeColor: const Color(0xFFD4AF37),
+                    onChanged: (v) =>
+                        setLocal(() => sendWaAfterSave = v ?? false),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD4AF37),
+                  foregroundColor: Colors.black,
                 ),
-                items: [
-                  for (var i = 0; i < allOptions.length; i++)
-                    DropdownMenuItem<int>(
-                      value: i,
-                      child: Text(
-                        '${allOptions[i]['name']} (R\$ ${(allOptions[i]['price'] as double).toStringAsFixed(2)} • ${allOptions[i]['duration']} min)',
-                        overflow: TextOverflow.ellipsis,
+                onPressed: () async {
+                  final newService = srvCtrl.text.trim().isEmpty
+                      ? 'Serviço'
+                      : srvCtrl.text.trim();
+                  final newPrice =
+                      double.tryParse(priceCtrl.text.replaceAll(',', '.')) ??
+                          currentPrice;
+                  final newDur =
+                      int.tryParse(durCtrl.text.trim()) ?? currentDuration;
+                  final newDate = dateCtrl.text.trim();
+                  final newTime = timeCtrl.text.trim();
+                  final newBarber = barberCtrl.text.trim().isEmpty
+                      ? 'Mr. Jone'
+                      : barberCtrl.text.trim();
+
+                  final isDone = selectedStatus == 'concluído';
+
+                  Navigator.pop(ctx);
+
+                  final updatedItems = [
+                    {
+                      'name': newService,
+                      'price': newPrice,
+                      'duration': newDur,
+                      'isPlan': currentIsPlan,
+                      'sessionsPerMonth': currentSessions,
+                    }
+                  ];
+
+                  final patchPayload = {
+                    'items': updatedItems,
+                    'dateLabel': newDate,
+                    'date': newDate,
+                    'time': newTime,
+                    'barberName': newBarber,
+                    'status': selectedStatus,
+                    'attended': isDone,
+                    'completedAt':
+                        isDone ? DateTime.now().toIso8601String() : null,
+                    'updatedAt': DateTime.now().toIso8601String(),
+                  };
+
+                  await http.patch(
+                    Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode(patchPayload),
+                  );
+                  await _fetchBookings(silent: true);
+
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Reagendado para $newDate às $newTime com $newBarber (atualizado no site e Firebase).',
                       ),
                     ),
-                ],
-                onChanged: (idx) {
-                  if (idx == null) return;
-                  final opt = allOptions[idx];
-                  srvCtrl.text = opt['name'].toString();
-                  priceCtrl.text = (opt['price'] as double).toStringAsFixed(2);
-                  durCtrl.text = '${opt['duration'] ?? 30}';
-                  currentIsPlan = opt['isPlan'] == true;
-                  currentSessions =
-                      int.tryParse('${opt['sessionsPerMonth'] ?? 4}') ?? 4;
+                  );
+
+                  if (sendWaAfterSave) {
+                    final updatedMap = {
+                      ...b,
+                      ...patchPayload,
+                    };
+                    await _openWhatsApp(updatedMap, rescheduled: true);
+                  }
                 },
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: srvCtrl,
-                decoration: const InputDecoration(labelText: 'Serviço / Plano'),
-              ),
-              TextField(
-                controller: priceCtrl,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Valor (R\$)'),
-              ),
-              TextField(
-                controller: durCtrl,
-                keyboardType: TextInputType.number,
-                decoration:
-                    const InputDecoration(labelText: 'Duração (minutos)'),
-              ),
-              TextField(
-                controller: dateCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Data (ex: 22/11/2026)',
-                ),
-              ),
-              TextField(
-                controller: timeCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Horário (ex: 10:30)'),
-              ),
-              TextField(
-                controller: barberCtrl,
-                decoration: const InputDecoration(labelText: 'Barbeiro'),
+                child: const Text('Guardar e Atualizar Site'),
               ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD4AF37),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () async {
-              final newService = srvCtrl.text.trim().isEmpty
-                  ? 'Serviço'
-                  : srvCtrl.text.trim();
-              final newPrice =
-                  double.tryParse(priceCtrl.text.replaceAll(',', '.')) ??
-                      currentPrice;
-              final newDur = int.tryParse(durCtrl.text.trim()) ?? currentDuration;
-              final newDate = dateCtrl.text.trim();
-              final newTime = timeCtrl.text.trim();
-              final newBarber = barberCtrl.text.trim().isEmpty
-                  ? 'Mr. Jone'
-                  : barberCtrl.text.trim();
-
-              Navigator.pop(ctx);
-
-              final updatedItems = [
-                {
-                  'name': newService,
-                  'price': newPrice,
-                  'duration': newDur,
-                  'isPlan': currentIsPlan,
-                  'sessionsPerMonth': currentSessions,
-                }
-              ];
-
-              await http.patch(
-                Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'),
-                headers: {'Content-Type': 'application/json'},
-                body: jsonEncode({
-                  'items': updatedItems,
-                  'dateLabel': newDate,
-                  'time': newTime,
-                  'barberName': newBarber,
-                }),
-              );
-              await _fetchBookings(silent: true);
-            },
-            child: const Text('Guardar Alterações'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
-
-  Future<void> _saveCatalogItem({
+      Future<void> _saveCatalogItem({
     required bool isPlan,
     String? existingId,
     required String name,
@@ -1528,7 +1917,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     }
   }
-      Future<void> _saveBarber({
+
+  Future<void> _saveBarber({
     String? existingId,
     required String name,
     required String role,
@@ -1926,7 +2316,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildAccountingTab() {
+
+  Widget _buildAccountingTab() {
     final double receita =
         _totalReceita(onlyCompleted: _onlyCompletedInAccounting);
     final double totalComissao =
@@ -1936,7 +2327,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final List visibleBookings = _bookings.where((b) {
       if (b is! Map) return false;
       if (!_onlyCompletedInAccounting) return true;
-      return _isCompletedStatus(b);
+      return _isCompletedStatus(b) || _isNotCompletedStatus(b) || true;
     }).toList();
 
     return RefreshIndicator(
@@ -2046,6 +2437,30 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const Text('COMISSÕES', style: TextStyle(fontSize: 11)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'R\$ ${totalComissao.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.greenAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Card(
+                  color: const Color(0xFF141417),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         const Text('LÍQUIDO CASA',
                             style: TextStyle(fontSize: 11)),
                         const SizedBox(height: 4),
@@ -2083,7 +2498,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 style: TextStyle(fontSize: 13),
               ),
               subtitle: const Text(
-                'Ativo por padrão: ao clicar em Concluir soma; ao clicar em Não concluído não conta.',
+                'Ativo por padrão: Concluir soma; Não concluído não conta e fica na agenda até você excluir.',
                 style: TextStyle(fontSize: 11, color: Colors.white70),
               ),
               value: _onlyCompletedInAccounting,
@@ -2106,6 +2521,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             final String key = (b['firebaseKey'] ?? '').toString();
             final String status = (b['status'] ?? 'confirmado').toString();
             final bool isDone = _isCompletedStatus(b);
+            final bool isNotDone = _isNotCompletedStatus(b);
             final bool countsInTotals = _shouldCountBooking(
               b,
               onlyCompleted: _onlyCompletedInAccounting,
@@ -2146,7 +2562,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         TextButton(
                           onPressed: () => _openEditBookingDialog(b),
                           child: const Text(
-                            'Editar',
+                            'Reagendar / Editar',
                             style: TextStyle(color: Color(0xFFF3D97E)),
                           ),
                         ),
@@ -2171,9 +2587,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         ),
                         TextButton(
                           onPressed: () => _marcarNaoConcluido(b),
-                          child: const Text(
-                            'Não concluído',
-                            style: TextStyle(color: Colors.orangeAccent),
+                          child: Text(
+                            isNotDone ? 'Não concluído ✓' : 'Não concluído',
+                            style: TextStyle(
+                              color: Colors.orangeAccent,
+                              fontWeight:
+                                  isNotDone ? FontWeight.bold : FontWeight.normal,
+                            ),
                           ),
                         ),
                         TextButton(
@@ -2198,8 +2618,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Widget _buildCatalogTab() {
+     Widget _buildCatalogTab() {
     return RefreshIndicator(
       onRefresh: _fetchCatalog,
       child: ListView(
@@ -2417,7 +2836,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-      Widget _buildBarbersTab() {
+
+  Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
       child: ListView(
