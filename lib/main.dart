@@ -14,76 +14,145 @@ const String kDefaultAdminPass = '1234';
 const String kPrefAdminPass = 'mrjone_admin_pass';
 const String kPrefLoggedIn = 'mrjone_logged_in';
 const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
+const String kPrefExpediente = 'mrjone_expediente_v1';
+const String kPrefPauses = 'mrjone_pauses_v1';
+const String kPrefSlotStep = 'mrjone_slot_step_v1';
+
+final Map<String, Map> kDefaultExpediente = {
+  '1': {
+    'name': 'Segunda',
+    'ativo': true,
+    't1Inicio': '09:00',
+    't1Fim': '12:00',
+    't2Ativo': true,
+    't2Inicio': '14:00',
+    't2Fim': '18:30',
+  },
+  '2': {
+    'name': 'Terça',
+    'ativo': true,
+    't1Inicio': '09:00',
+    't1Fim': '12:00',
+    't2Ativo': true,
+    't2Inicio': '14:00',
+    't2Fim': '19:30',
+  },
+  '3': {
+    'name': 'Quarta',
+    'ativo': true,
+    't1Inicio': '09:00',
+    't1Fim': '12:00',
+    't2Ativo': true,
+    't2Inicio': '14:00',
+    't2Fim': '19:30',
+  },
+  '4': {
+    'name': 'Quinta',
+    'ativo': true,
+    't1Inicio': '09:00',
+    't1Fim': '12:00',
+    't2Ativo': true,
+    't2Inicio': '14:00',
+    't2Fim': '19:30',
+  },
+  '5': {
+    'name': 'Sexta',
+    'ativo': true,
+    't1Inicio': '08:00',
+    't1Fim': '12:00',
+    't2Ativo': true,
+    't2Inicio': '14:00',
+    't2Fim': '20:00',
+  },
+  '6': {
+    'name': 'Sábado',
+    'ativo': true,
+    't1Inicio': '08:00',
+    't1Fim': '12:00',
+    't2Ativo': true,
+    't2Inicio': '15:00',
+    't2Fim': '20:00',
+  },
+  '0': {
+    'name': 'Domingo',
+    'ativo': true,
+    't1Inicio': '09:00',
+    't1Fim': '14:00',
+    't2Ativo': false,
+    't2Inicio': '14:00',
+    't2Fim': '18:00',
+  },
+};
 final List kDefaultServices = [
   {
     'id': 'def_srv_1',
-    'name': 'Máquina Pente Só',
-    'category': 'Serviços Avulsos',
-    'price': 35.0,
+    'name': 'Cabelo e Barba (Combo Completo)',
+    'category': 'Combos',
+    'price': 65.0,
+    'duration': 50,
     'isPlan': false,
     'sessionsPerMonth': 1,
   },
   {
     'id': 'def_srv_2',
-    'name': 'Cabelo Disfarçado',
-    'category': 'Serviços Avulsos',
+    'name': 'Corte Degradê / Disfarçado / Navalhado',
+    'category': 'Cortes',
     'price': 40.0,
+    'duration': 40,
     'isPlan': false,
     'sessionsPerMonth': 1,
   },
   {
     'id': 'def_srv_3',
-    'name': 'Barba',
-    'category': 'Serviços Avulsos',
-    'price': 30.0,
+    'name': 'Corte (Um Pente Só)',
+    'category': 'Cortes',
+    'price': 35.0,
+    'duration': 30,
     'isPlan': false,
     'sessionsPerMonth': 1,
   },
   {
     'id': 'def_srv_4',
-    'name': 'Cabelo e Barba',
-    'category': 'Serviços Avulsos',
-    'price': 65.0,
+    'name': 'Barba Completa',
+    'category': 'Barba & Acabamentos',
+    'price': 30.0,
+    'duration': 20,
     'isPlan': false,
     'sessionsPerMonth': 1,
   },
   {
     'id': 'def_srv_5',
     'name': 'Sobrancelha',
-    'category': 'Serviços Avulsos',
+    'category': 'Barba & Acabamentos',
     'price': 8.0,
+    'duration': 10,
     'isPlan': false,
     'sessionsPerMonth': 1,
   },
   {
     'id': 'def_srv_6',
-    'name': 'Pé de Cabelo',
-    'category': 'Serviços Avulsos',
+    'name': 'Só Pezinho (Acabamento)',
+    'category': 'Barba & Acabamentos',
     'price': 10.0,
+    'duration': 15,
     'isPlan': false,
     'sessionsPerMonth': 1,
   },
   {
     'id': 'def_srv_7',
     'name': 'Pigmentação',
-    'category': 'Serviços Avulsos',
+    'category': 'Barba & Acabamentos',
     'price': 15.0,
+    'duration': 15,
     'isPlan': false,
     'sessionsPerMonth': 1,
   },
   {
     'id': 'def_srv_8',
-    'name': 'Platinado + Corte',
-    'category': 'Química & Luzes',
+    'name': 'Platinado ou Luzes + Corte',
+    'category': 'Química',
     'price': 100.0,
-    'isPlan': false,
-    'sessionsPerMonth': 1,
-  },
-  {
-    'id': 'def_srv_9',
-    'name': 'Luzes + Corte',
-    'category': 'Química & Luzes',
-    'price': 100.0,
+    'duration': 60,
     'isPlan': false,
     'sessionsPerMonth': 1,
   },
@@ -92,17 +161,28 @@ final List kDefaultServices = [
 final List kDefaultPlans = [
   {
     'id': 'def_pln_1',
-    'name': 'Plano Mensal Corte (4x)',
+    'name': 'Plano Mensal: Cabelo e Barba (Toda Semana)',
     'category': 'Planos Mensais',
-    'price': 130.0,
+    'price': 150.0,
+    'duration': 50,
     'isPlan': true,
     'sessionsPerMonth': 4,
   },
   {
     'id': 'def_pln_2',
-    'name': 'Plano Mensal Cabelo + Barba (4x)',
+    'name': 'Plano Mensal: Só Cabelo (Toda Semana)',
     'category': 'Planos Mensais',
-    'price': 210.0,
+    'price': 110.0,
+    'duration': 40,
+    'isPlan': true,
+    'sessionsPerMonth': 4,
+  },
+  {
+    'id': 'def_pln_3',
+    'name': 'Plano Mensal: Só Barba (Toda Semana)',
+    'category': 'Planos Mensais',
+    'price': 75.0,
+    'duration': 20,
     'isPlan': true,
     'sessionsPerMonth': 4,
   },
@@ -264,7 +344,7 @@ class MrJoneGestaoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Barbearia Mr Jone • Gestão',
+      title: 'Barbearia Mr Jone • Gestão Completa',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0B0B0C),
@@ -292,10 +372,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   int _tabIndex = 0;
   String _statusMsg = 'Aguardando conexão com o Firebase';
   String _adminPass = kDefaultAdminPass;
+  int _slotStepMinutes = 15;
 
   final TextEditingController _passController = TextEditingController();
   final TextEditingController _newPassController = TextEditingController();
 
+  Map<String, Map> _expediente = {};
+  List _pauses = [];
   List _bookings = [];
   List _newAlerts = [];
   List _services = [];
@@ -311,7 +394,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     super.initState();
     _services = List.from(kDefaultServices);
     _plans = List.from(kDefaultPlans);
+    _expediente = _cloneDefaultExpediente();
     _loadSavedSessionAndPass();
+  }
+
+  Map<String, Map> _cloneDefaultExpediente() {
+    final Map<String, Map> copy = {};
+    kDefaultExpediente.forEach((k, v) {
+      copy[k] = Map.from(v);
+    });
+    return copy;
   }
 
   @override
@@ -335,6 +427,34 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final prefs = await SharedPreferences.getInstance();
     final savedPass = prefs.getString(kPrefAdminPass);
     final wasLoggedIn = prefs.getBool(kPrefLoggedIn) ?? false;
+    final savedStep = prefs.getInt(kPrefSlotStep) ?? 15;
+    final savedExpRaw = prefs.getString(kPrefExpediente);
+    final savedPausesRaw = prefs.getString(kPrefPauses);
+
+    Map<String, Map> loadedExp = _cloneDefaultExpediente();
+    if (savedExpRaw != null && savedExpRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(savedExpRaw);
+        if (decoded is Map) {
+          decoded.forEach((k, v) {
+            if (v is Map && loadedExp.containsKey(k.toString())) {
+              loadedExp[k.toString()] = {
+                ...loadedExp[k.toString()]!,
+                ...Map.from(v),
+              };
+            }
+          });
+        }
+      } catch (_) {}
+    }
+
+    List loadedPauses = [];
+    if (savedPausesRaw != null && savedPausesRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(savedPausesRaw);
+        if (decoded is List) loadedPauses = decoded;
+      } catch (_) {}
+    }
 
     if (!mounted) return;
     setState(() {
@@ -342,12 +462,26 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         _adminPass = savedPass.trim();
       }
       _newPassController.text = _adminPass;
+      _slotStepMinutes = savedStep;
+      _expediente = loadedExp;
+      _pauses = loadedPauses;
       _unlocked = wasLoggedIn;
     });
 
     if (wasLoggedIn) {
       _startActiveSession();
     }
+  }
+
+  Future<void> _saveExpedienteLocal() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kPrefExpediente, jsonEncode(_expediente));
+    await prefs.setInt(kPrefSlotStep, _slotStepMinutes);
+  }
+
+  Future<void> _savePausesLocal() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kPrefPauses, jsonEncode(_pauses));
   }
 
   Future<void> _saveNewAdminPass(String newPass) async {
@@ -409,7 +543,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     setState(() {
       _loading = false;
       _statusMsg =
-          'Online • ${_bookings.length} agendamento(s) • ${_services.length} serviço(s) • ${_barbers.length} barbeiro(s)';
+          'Online • ${_bookings.length} agendamento(s) • ${_services.length + _plans.length} item(ns) • ${_barbers.length} barbeiro(s)';
     });
   }
 
@@ -584,12 +718,216 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
+
+  double _calcReceitaItem(Map item) {
+    final double price = double.tryParse('${item['price'] ?? 0}') ?? 0;
+    final bool isPlan = item['isPlan'] == true;
+    final int sessions = int.tryParse('${item['sessionsPerMonth'] ?? 4}') ?? 4;
+    return isPlan ? (price / (sessions <= 0 ? 4 : sessions)) : price;
+  }
+
+  double _calcComissaoItem(Map item, double commPct) {
+    return _calcReceitaItem(item) * (commPct / 100.0);
+  }
+
+  double _calcBookingValue(Map b) {
+    double sum = 0;
+    final items = b['items'];
+    if (items is List) {
+      for (final it in items) {
+        if (it is Map) {
+          sum += _calcReceitaItem(it);
+        }
+      }
+    }
+    return sum;
+  }
+
+  double _totalReceita() {
+    double sum = 0;
+    for (final b in _bookings) {
+      if ((b['status'] ?? '') == 'cancelado') continue;
+      sum += _calcBookingValue(b);
+    }
+    return sum;
+  }
+
+  double _barberTotalGenerated(String barberName) {
+    final target = barberName.trim().toLowerCase();
+    if (target.isEmpty) return 0;
+    double sum = 0;
+    for (final b in _bookings) {
+      if ((b['status'] ?? '') == 'cancelado') continue;
+      final bName = (b['barberName'] ?? '').toString().trim().toLowerCase();
+      if (bName == target || bName.contains(target) || target.contains(bName)) {
+        sum += _calcBookingValue(b);
+      }
+    }
+    return sum;
+  }
+
+  Future<void> _openManualEntryDialog() async {
+    final clientCtrl = TextEditingController(text: 'Cliente Balcão');
+    String selectedBarberName = _barbers.isNotEmpty
+        ? (_barbers.first['name'] ?? 'Mr. Jone').toString()
+        : 'Mr. Jone';
+    double selectedCommPct = _barbers.isNotEmpty
+        ? (double.tryParse('${_barbers.first['commission'] ?? 50}') ?? 50)
+        : 50;
+
+    final List allCatalog = [..._services, ..._plans];
+    Map selectedItem = allCatalog.isNotEmpty
+        ? Map.from(allCatalog.first as Map)
+        : {
+            'name': 'Cabelo e Barba (Combo Completo)',
+            'price': 65.0,
+            'duration': 50,
+            'isPlan': false,
+            'sessionsPerMonth': 1,
+          };
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setLocal) => AlertDialog(
+          backgroundColor: const Color(0xFF141417),
+          title: const Text(
+            'Lançar Atendimento Manual',
+            style: TextStyle(color: Color(0xFFF3D97E)),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: clientCtrl,
+                  decoration: const InputDecoration(labelText: 'Nome do Cliente'),
+                ),
+                const SizedBox(height: 8),
+                if (_barbers.isNotEmpty)
+                  DropdownButtonFormField<int>(
+                    isExpanded: true,
+                    value: 0,
+                    dropdownColor: const Color(0xFF1B1B20),
+                    decoration: const InputDecoration(labelText: 'Barbeiro'),
+                    items: [
+                      for (var i = 0; i < _barbers.length; i++)
+                        DropdownMenuItem<int>(
+                          value: i,
+                          child: Text(
+                            '${_barbers[i]['name']} (${_barbers[i]['commission'] ?? 50}%)',
+                          ),
+                        ),
+                    ],
+                    onChanged: (idx) {
+                      if (idx == null) return;
+                      setLocal(() {
+                        selectedBarberName =
+                            (_barbers[idx]['name'] ?? 'Mr. Jone').toString();
+                        selectedCommPct = double.tryParse(
+                                '${_barbers[idx]['commission'] ?? 50}') ??
+                            50;
+                      });
+                    },
+                  ),
+                const SizedBox(height: 8),
+                if (allCatalog.isNotEmpty)
+                  DropdownButtonFormField<int>(
+                    isExpanded: true,
+                    value: 0,
+                    dropdownColor: const Color(0xFF1B1B20),
+                    decoration:
+                        const InputDecoration(labelText: 'Serviço ou Plano'),
+                    items: [
+                      for (var i = 0; i < allCatalog.length; i++)
+                        DropdownMenuItem<int>(
+                          value: i,
+                          child: Text(
+                            '${allCatalog[i]['name']} • R\$ ${allCatalog[i]['price']}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (idx) {
+                      if (idx == null) return;
+                      setLocal(() {
+                        selectedItem = Map.from(allCatalog[idx] as Map);
+                      });
+                    },
+                  ),
+                const SizedBox(height: 12),
+                Text(
+                  'Receita sessão: R\$ ${_calcReceitaItem(selectedItem).toStringAsFixed(2)} • Comissão (${selectedCommPct.toStringAsFixed(0)}%): R\$ ${_calcComissaoItem(selectedItem, selectedCommPct).toStringAsFixed(2)}',
+                  style: const TextStyle(fontSize: 12, color: Colors.greenAccent),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD4AF37),
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () async {
+                final now = DateTime.now();
+                final hh = now.hour.toString().padLeft(2, '0');
+                final mm = now.minute.toString().padLeft(2, '0');
+                final dd = now.day.toString().padLeft(2, '0');
+                final mo = now.month.toString().padLeft(2, '0');
+                Navigator.pop(ctx);
+
+                await http.post(
+                  Uri.parse('$kFirebaseDbUrl/bookings.json'),
+                  headers: {'Content-Type': 'application/json'},
+                  body: jsonEncode({
+                    'clientName': clientCtrl.text.trim().isEmpty
+                        ? 'Cliente Balcão'
+                        : clientCtrl.text.trim(),
+                    'clientPhone': 'Balcão',
+                    'barberName': selectedBarberName,
+                    'dateLabel': '$dd/$mo/${now.year}',
+                    'time': '$hh:$mm',
+                    'status': 'concluído',
+                    'createdAt': now.toIso8601String(),
+                    'items': [
+                      {
+                        'name': (selectedItem['name'] ?? 'Serviço').toString(),
+                        'price': double.tryParse(
+                                '${selectedItem['price'] ?? 0}') ??
+                            0,
+                        'duration':
+                            int.tryParse('${selectedItem['duration'] ?? 30}') ??
+                                30,
+                        'isPlan': selectedItem['isPlan'] == true,
+                        'sessionsPerMonth': int.tryParse(
+                                '${selectedItem['sessionsPerMonth'] ?? 4}') ??
+                            4,
+                      }
+                    ],
+                  }),
+                );
+                await _fetchBookings(silent: true);
+              },
+              child: const Text('Registrar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
      List _buildCatalogOptions() {
     final List options = [];
     for (final s in _services) {
       options.add({
         'name': (s['name'] ?? '').toString(),
         'price': double.tryParse('${s['price'] ?? 0}') ?? 0.0,
+        'duration': int.tryParse('${s['duration'] ?? 30}') ?? 30,
         'isPlan': false,
         'sessionsPerMonth': 1,
       });
@@ -598,6 +936,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       options.add({
         'name': (p['name'] ?? '').toString(),
         'price': double.tryParse('${p['price'] ?? 0}') ?? 0.0,
+        'duration': int.tryParse('${p['duration'] ?? 40}') ?? 40,
         'isPlan': true,
         'sessionsPerMonth': int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4,
       });
@@ -611,6 +950,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     String currentServiceName = '';
     double currentPrice = 0;
+    int currentDuration = 30;
     bool currentIsPlan = false;
     int currentSessions = 4;
 
@@ -619,6 +959,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       if (first is Map) {
         currentServiceName = (first['name'] ?? '').toString();
         currentPrice = double.tryParse('${first['price'] ?? 0}') ?? 0;
+        currentDuration = int.tryParse('${first['duration'] ?? 30}') ?? 30;
         currentIsPlan = first['isPlan'] == true;
         currentSessions = int.tryParse('${first['sessionsPerMonth'] ?? 4}') ?? 4;
       }
@@ -627,6 +968,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final srvCtrl = TextEditingController(text: currentServiceName);
     final priceCtrl =
         TextEditingController(text: currentPrice.toStringAsFixed(2));
+    final durCtrl = TextEditingController(text: '$currentDuration');
     final dateCtrl =
         TextEditingController(text: (b['dateLabel'] ?? '').toString());
     final timeCtrl = TextEditingController(text: (b['time'] ?? '').toString());
@@ -648,11 +990,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Trocar serviço ou plano do cliente:',
-                style: TextStyle(fontSize: 12, color: Colors.white70),
-              ),
-              const SizedBox(height: 6),
               DropdownButtonFormField<int>(
                 isExpanded: true,
                 dropdownColor: const Color(0xFF1B1B20),
@@ -664,7 +1001,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     DropdownMenuItem<int>(
                       value: i,
                       child: Text(
-                        '${allOptions[i]['name']} (R\$ ${(allOptions[i]['price'] as double).toStringAsFixed(2)})',
+                        '${allOptions[i]['name']} (R\$ ${(allOptions[i]['price'] as double).toStringAsFixed(2)} • ${allOptions[i]['duration']} min)',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -674,6 +1011,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   final opt = allOptions[idx];
                   srvCtrl.text = opt['name'].toString();
                   priceCtrl.text = (opt['price'] as double).toStringAsFixed(2);
+                  durCtrl.text = '${opt['duration'] ?? 30}';
                   currentIsPlan = opt['isPlan'] == true;
                   currentSessions =
                       int.tryParse('${opt['sessionsPerMonth'] ?? 4}') ?? 4;
@@ -691,9 +1029,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 decoration: const InputDecoration(labelText: 'Valor (R\$)'),
               ),
               TextField(
+                controller: durCtrl,
+                keyboardType: TextInputType.number,
+                decoration:
+                    const InputDecoration(labelText: 'Duração (minutos)'),
+              ),
+              TextField(
                 controller: dateCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Data (ex: 22/11/2026 (Dom))',
+                  labelText: 'Data (ex: 22/11/2026)',
                 ),
               ),
               TextField(
@@ -725,6 +1069,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               final newPrice =
                   double.tryParse(priceCtrl.text.replaceAll(',', '.')) ??
                       currentPrice;
+              final newDur = int.tryParse(durCtrl.text.trim()) ?? currentDuration;
               final newDate = dateCtrl.text.trim();
               final newTime = timeCtrl.text.trim();
               final newBarber = barberCtrl.text.trim().isEmpty
@@ -737,6 +1082,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 {
                   'name': newService,
                   'price': newPrice,
+                  'duration': newDur,
                   'isPlan': currentIsPlan,
                   'sessionsPerMonth': currentSessions,
                 }
@@ -767,6 +1113,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     required String name,
     required String category,
     required double price,
+    required int duration,
     required int sessionsPerMonth,
   }) async {
     final node = isPlan ? 'plans' : 'services';
@@ -776,6 +1123,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           ? (isPlan ? 'Planos Mensais' : 'Serviços Avulsos')
           : category.trim(),
       'price': price,
+      'duration': duration <= 0 ? 30 : duration,
       'isPlan': isPlan,
       'sessionsPerMonth':
           isPlan ? (sessionsPerMonth <= 0 ? 4 : sessionsPerMonth) : 1,
@@ -863,6 +1211,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
     final priceCtrl =
         TextEditingController(text: (item?['price'] ?? '0').toString());
+    final durCtrl =
+        TextEditingController(text: (item?['duration'] ?? '30').toString());
     final sessCtrl = TextEditingController(
       text: (item?['sessionsPerMonth'] ?? (isPlan ? '4' : '1')).toString(),
     );
@@ -873,7 +1223,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         backgroundColor: const Color(0xFF141417),
         title: Text(
           item == null
-              ? (isPlan ? 'Novo Plano / Categoria' : 'Novo Serviço / Corte')
+              ? (isPlan ? 'Novo Plano Mensal' : 'Novo Serviço / Corte')
               : (isPlan ? 'Editar Plano' : 'Editar Serviço'),
           style: const TextStyle(color: Color(0xFFF3D97E)),
         ),
@@ -894,6 +1244,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(labelText: 'Preço (R\$)'),
+              ),
+              TextField(
+                controller: durCtrl,
+                keyboardType: TextInputType.number,
+                decoration:
+                    const InputDecoration(labelText: 'Duração média (minutos)'),
               ),
               if (isPlan)
                 TextField(
@@ -919,6 +1275,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               if (name.isEmpty) return;
               final price =
                   double.tryParse(priceCtrl.text.replaceAll(',', '.')) ?? 0;
+              final dur = int.tryParse(durCtrl.text.trim()) ?? 30;
               final sess = int.tryParse(sessCtrl.text.trim()) ?? 4;
               Navigator.pop(ctx);
               await _saveCatalogItem(
@@ -927,6 +1284,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 name: name,
                 category: catCtrl.text,
                 price: price,
+                duration: dur,
                 sessionsPerMonth: sess,
               );
             },
@@ -1002,6 +1360,72 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
+
+  Future<void> _openAddPauseDialog() async {
+    final dateCtrl = TextEditingController(text: '22/11/2026');
+    final startCtrl = TextEditingController(text: '12:00');
+    final endCtrl = TextEditingController(text: '13:00');
+    final reasonCtrl = TextEditingController(text: 'Almoço / Pausa');
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141417),
+        title: const Text(
+          'Nova Pausa / Bloqueio',
+          style: TextStyle(color: Color(0xFFF3D97E)),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: dateCtrl,
+              decoration: const InputDecoration(labelText: 'Data'),
+            ),
+            TextField(
+              controller: startCtrl,
+              decoration: const InputDecoration(labelText: 'Início (HH:MM)'),
+            ),
+            TextField(
+              controller: endCtrl,
+              decoration: const InputDecoration(labelText: 'Fim (HH:MM)'),
+            ),
+            TextField(
+              controller: reasonCtrl,
+              decoration: const InputDecoration(labelText: 'Motivo'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4AF37),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              setState(() {
+                _pauses.add({
+                  'date': dateCtrl.text.trim(),
+                  'start': startCtrl.text.trim(),
+                  'end': endCtrl.text.trim(),
+                  'reason': reasonCtrl.text.trim().isEmpty
+                      ? 'Pausa'
+                      : reasonCtrl.text.trim(),
+                });
+              });
+              await _savePausesLocal();
+            },
+            child: const Text('Salvar Pausa'),
+          ),
+        ],
+      ),
+    );
+  }
      Future<void> _openWhatsApp(Map b) async {
     final client = (b['clientName'] ?? 'Cliente').toString();
     final dateLbl = (b['dateLabel'] ?? '').toString();
@@ -1033,49 +1457,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     if (firebaseKey.isEmpty) return;
     await http.delete(Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'));
     await _fetchBookings(silent: true);
-  }
-
-  double _calcReceitaItem(Map item) {
-    final double price = double.tryParse('${item['price'] ?? 0}') ?? 0;
-    final bool isPlan = item['isPlan'] == true;
-    final int sessions = int.tryParse('${item['sessionsPerMonth'] ?? 4}') ?? 4;
-    return isPlan ? (price / (sessions <= 0 ? 4 : sessions)) : price;
-  }
-
-  double _calcBookingValue(Map b) {
-    double sum = 0;
-    final items = b['items'];
-    if (items is List) {
-      for (final it in items) {
-        if (it is Map) {
-          sum += _calcReceitaItem(it);
-        }
-      }
-    }
-    return sum;
-  }
-
-  double _totalReceita() {
-    double sum = 0;
-    for (final b in _bookings) {
-      if ((b['status'] ?? '') == 'cancelado') continue;
-      sum += _calcBookingValue(b);
-    }
-    return sum;
-  }
-
-  double _barberTotalGenerated(String barberName) {
-    final target = barberName.trim().toLowerCase();
-    if (target.isEmpty) return 0;
-    double sum = 0;
-    for (final b in _bookings) {
-      if ((b['status'] ?? '') == 'cancelado') continue;
-      final bName = (b['barberName'] ?? '').toString().trim().toLowerCase();
-      if (bName == target || bName.contains(target) || target.contains(bName)) {
-        sum += _calcBookingValue(b);
-      }
-    }
-    return sum;
   }
 
   Widget _buildHeaderBanner() {
@@ -1115,9 +1496,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
-  Widget _buildBookingsTab() {
+  Widget _buildAccountingTab() {
     final double receita = _totalReceita();
     final double comissao50 = receita * 0.5;
+    final double liquidoCasa = receita - comissao50;
 
     return RefreshIndicator(
       onRefresh: _syncAll,
@@ -1174,7 +1556,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 child: Card(
                   color: const Color(0xFF141417),
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(10),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1183,7 +1565,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         Text(
                           'R\$ ${receita.toStringAsFixed(2)}',
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFFF3D97E),
                           ),
@@ -1193,12 +1575,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Expanded(
                 child: Card(
                   color: const Color(0xFF141417),
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(10),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1208,7 +1590,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         Text(
                           'R\$ ${comissao50.toStringAsFixed(2)}',
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: Colors.greenAccent,
                           ),
@@ -1218,15 +1600,70 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   ),
                 ),
               ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Card(
+                  color: const Color(0xFF141417),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('LÍQUIDO CASA',
+                            style: TextStyle(fontSize: 11)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'R\$ ${liquidoCasa.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFF3D97E),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
+          const SizedBox(height: 10),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4AF37),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: _openManualEntryDialog,
+            icon: const Icon(Icons.add_card),
+            label: const Text('Lançar Atendimento Manual (Balcão / Plano)'),
+          ),
+          const SizedBox(height: 10),
+          const Card(
+            color: Color(0xFF141417),
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Regra de Comissão (50%):\n• Avulsos: 50% do serviço.\n• Plano Cabelo e Barba (R\$ 150 / 4x): R\$ 37,50/atend. → R\$ 18,75 comissão.\n• Plano Só Cabelo (R\$ 110 / 4x): R\$ 27,50/atend. → R\$ 13,75 comissão.\n• Plano Só Barba (R\$ 75 / 4x): R\$ 18,75/atend. → R\$ 9,38 comissão.',
+                style: TextStyle(fontSize: 12, color: Colors.white70),
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
+          const Text(
+            'AGENDA & ATENDIMENTOS',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFF3D97E),
+            ),
+          ),
+          const SizedBox(height: 6),
           if (_loading && _bookings.isEmpty)
             const Center(child: CircularProgressIndicator()),
           ..._bookings.map((b) {
             final String key = (b['firebaseKey'] ?? '').toString();
             final String status = (b['status'] ?? 'confirmado').toString();
             final double val = _calcBookingValue(b);
+            final double comm = val * 0.5;
             final List<String> srvNames = [];
             if (b['items'] is List) {
               for (final it in b['items'] as List) {
@@ -1252,7 +1689,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Barbeiro: ${b['barberName'] ?? 'Mr. Jone'} • R\$ ${val.toStringAsFixed(2)} • $status',
+                      'Barbeiro: ${b['barberName'] ?? 'Mr. Jone'} • Receita: R\$ ${val.toStringAsFixed(2)} • Comissão 50%: R\$ ${comm.toStringAsFixed(2)} • $status',
                       style: const TextStyle(fontSize: 12),
                     ),
                     if (srvNames.isNotEmpty)
@@ -1341,7 +1778,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           ),
           const SizedBox(height: 14),
           const Text(
-            'SERVIÇOS E CORTES',
+            'SERVIÇOS, PREÇOS E DURAÇÃO',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Color(0xFFF3D97E),
@@ -1350,12 +1787,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           const SizedBox(height: 6),
           ..._services.map((s) {
             final price = double.tryParse('${s['price'] ?? 0}') ?? 0;
+            final dur = int.tryParse('${s['duration'] ?? 30}') ?? 30;
             return Card(
               color: const Color(0xFF141417),
               child: ListTile(
                 title: Text(
                     '${s['name'] ?? 'Serviço'} • R\$ ${price.toStringAsFixed(2)}'),
-                subtitle: Text('Categoria: ${s['category'] ?? 'Avulso'}'),
+                subtitle: Text(
+                    '${s['category'] ?? 'Avulso'} • Duração: $dur min'),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1385,13 +1824,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           ..._plans.map((p) {
             final price = double.tryParse('${p['price'] ?? 0}') ?? 0;
             final sessions = int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4;
+            final dur = int.tryParse('${p['duration'] ?? 40}') ?? 40;
             return Card(
               color: const Color(0xFF141417),
               child: ListTile(
                 title: Text(
                     '${p['name'] ?? 'Plano'} • R\$ ${price.toStringAsFixed(2)}'),
                 subtitle: Text(
-                  'Categoria: ${p['category'] ?? 'Planos'} • $sessions sessões/mês',
+                  '$sessions sessões/mês • $dur min/atend.',
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1414,7 +1854,113 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-     Widget _buildBarbersTab() {
+
+  Widget _buildExpedienteTab() {
+    final ordem = ['1', '2', '3', '4', '5', '6', '0'];
+    return ListView(
+      padding: const EdgeInsets.all(14),
+      children: [
+        Card(
+          color: const Color(0xFF141417),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Intervalo de encaixe (min):'),
+                DropdownButton<int>(
+                  value: _slotStepMinutes,
+                  dropdownColor: const Color(0xFF1B1B20),
+                  items: const [
+                    DropdownMenuItem(value: 10, child: Text('10 min')),
+                    DropdownMenuItem(value: 15, child: Text('15 min')),
+                    DropdownMenuItem(value: 20, child: Text('20 min')),
+                    DropdownMenuItem(value: 30, child: Text('30 min')),
+                  ],
+                  onChanged: (v) async {
+                    if (v == null) return;
+                    setState(() => _slotStepMinutes = v);
+                    await _saveExpedienteLocal();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...ordem.map((d) {
+          final info = _expediente[d] ?? {};
+          final bool ativo = info['ativo'] == true;
+          final bool t2Ativo = info['t2Ativo'] == true;
+          return Card(
+            color: const Color(0xFF141417),
+            margin: const EdgeInsets.only(bottom: 8),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        (info['name'] ?? d).toString(),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFF3D97E),
+                        ),
+                      ),
+                      Switch(
+                        value: ativo,
+                        onChanged: (val) async {
+                          setState(() => _expediente[d]?['ativo'] = val);
+                          await _saveExpedienteLocal();
+                        },
+                      ),
+                    ],
+                  ),
+                  Text(
+                    'Turno 1: ${info['t1Inicio'] ?? '09:00'} às ${info['t1Fim'] ?? '12:00'}${t2Ativo ? ' • Turno 2: ${info['t2Inicio'] ?? '14:00'} às ${info['t2Fim'] ?? '19:30'}' : ' • Sem 2º turno'}',
+                    style: const TextStyle(fontSize: 12, color: Colors.white70),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+        const SizedBox(height: 10),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFD4AF37),
+            foregroundColor: Colors.black,
+          ),
+          onPressed: _openAddPauseDialog,
+          icon: const Icon(Icons.pause_circle),
+          label: const Text('Adicionar Pausa / Bloqueio'),
+        ),
+        const SizedBox(height: 8),
+        ..._pauses.asMap().entries.map((entry) {
+          final idx = entry.key;
+          final p = entry.value as Map;
+          return Card(
+            color: const Color(0xFF141417),
+            child: ListTile(
+              title: Text('${p['date'] ?? ''} • ${p['start'] ?? ''} às ${p['end'] ?? ''}'),
+              subtitle: Text((p['reason'] ?? 'Pausa').toString()),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete, color: Colors.redAccent),
+                onPressed: () async {
+                  setState(() => _pauses.removeAt(idx));
+                  await _savePausesLocal();
+                },
+              ),
+            ),
+          );
+        }),
+      ],   
+    );
+  } 
+    Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
       child: ListView(
@@ -1627,15 +2173,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
 
     final tabs = [
-      _buildBookingsTab(),
+      _buildAccountingTab(),
       _buildCatalogTab(),
+      _buildExpedienteTab(),
       _buildBarbersTab(),
       _buildSettingsTab(),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MR JONE • GESTÃO'),
+        title: const Text('MR JONE • GESTÃO COMPLETA'),
         backgroundColor: const Color(0xFF141417),
         actions: [
           IconButton(
@@ -1663,9 +2210,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         unselectedItemColor: Colors.white60,
         items: const [
           BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_month), label: 'Agenda'),
+              icon: Icon(Icons.account_balance_wallet), label: 'Contábil'),
           BottomNavigationBarItem(
               icon: Icon(Icons.attach_money), label: 'Preços'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.schedule), label: 'Horários'),
           BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Barbeiros'),
           BottomNavigationBarItem(
               icon: Icon(Icons.settings), label: 'Ajustes'),
