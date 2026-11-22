@@ -250,7 +250,6 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
-
 @pragma('vm:entry-point')
 void _onStartBackground(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
@@ -370,7 +369,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   bool _unlocked = false;
   bool _loading = false;
   int _tabIndex = 0;
-  bool _onlyCompletedInAccounting = false;
+
+  /// Por padrão, conta APENAS atendimentos "concluído" (não conta "não concluído").
+  bool _onlyCompletedInAccounting = true;
+  String _barberReportPeriod = 'mensal'; // 'semanal' ou 'mensal'
+
   String _statusMsg = 'A aguardar ligação ao Firebase';
   String _adminPass = kDefaultAdminPass;
   int _slotStepMinutes = 15;
@@ -473,7 +476,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _startActiveSession();
     }
   }
-     Future<void> _saveExpedienteAndSync() async {
+      Future<void> _saveExpedienteAndSync() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kPrefExpediente, jsonEncode(_expediente));
     await prefs.setInt(kPrefSlotStep, _slotStepMinutes);
@@ -596,7 +599,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-     Future<void> _syncAll() async {
+      Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'A sincronizar dados com o Firebase...';
@@ -782,7 +785,62 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-      double _getBarberCommissionPct(String? barberName) {
+      bool _isCompletedStatus(Map b) {
+    final st = (b['status'] ?? '').toString().trim().toLowerCase();
+    return st == 'concluído' || st == 'concluido';
+  }
+
+  DateTime? _parseBookingDate(Map b) {
+    final rawDate = (b['dateLabel'] ?? b['date'] ?? '').toString().trim();
+    if (rawDate.isNotEmpty) {
+      final slashParts = rawDate.split('/');
+      if (slashParts.length == 3) {
+        final day = int.tryParse(slashParts[0].trim());
+        final month = int.tryParse(slashParts[1].trim());
+        int? year = int.tryParse(slashParts[2].trim());
+        if (year != null && year < 100) year += 2000;
+        if (day != null && month != null && year != null) {
+          return DateTime(year, month, day);
+        }
+      }
+      final dashParts = rawDate.split('-');
+      if (dashParts.length == 3) {
+        final year = int.tryParse(dashParts[0].trim());
+        final month = int.tryParse(dashParts[1].trim());
+        final day = int.tryParse(dashParts[2].trim());
+        if (day != null && month != null && year != null) {
+          return DateTime(year, month, day);
+        }
+      }
+    }
+
+    final created = (b['createdAt'] ?? '').toString().trim();
+    if (created.isNotEmpty) {
+      final parsed = DateTime.tryParse(created);
+      if (parsed != null) {
+        return DateTime(parsed.year, parsed.month, parsed.day);
+      }
+    }
+    return null;
+  }
+
+  bool _matchesPeriod(Map b, String period) {
+    final dt = _parseBookingDate(b);
+    if (dt == null) return true;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    if (period == 'mensal') {
+      return dt.year == today.year && dt.month == today.month;
+    }
+
+    final weekStart = today.subtract(const Duration(days: 6));
+    final weekEnd = today.add(const Duration(days: 1));
+    return !dt.isBefore(weekStart) && dt.isBefore(weekEnd);
+  }
+
+  double _getBarberCommissionPct(String? barberName) {
     final target = (barberName ?? '').trim().toLowerCase();
     if (target.isNotEmpty) {
       for (final b in _barbers) {
@@ -820,6 +878,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         }
       }
     }
+    if (sum == 0) {
+      final fallbackPrice =
+          double.tryParse('${b['price'] ?? b['total'] ?? 0}') ?? 0;
+      if (fallbackPrice > 0) sum = fallbackPrice;
+    }
     return sum;
   }
 
@@ -828,42 +891,79 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return _calcBookingValue(b) * (pct / 100.0);
   }
 
-  double _totalReceita({bool onlyCompleted = false}) {
-    double sum = 0;
-    for (final b in _bookings) {
-      final st = (b['status'] ?? 'confirmado').toString().toLowerCase();
-      if (st == 'cancelado') continue;
-      if (onlyCompleted && st != 'concluído' && st != 'concluido') continue;
-      sum += _calcBookingValue(b);
+  bool _shouldCountBooking(Map b, {bool onlyCompleted = true}) {
+    final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
+    if (st == 'cancelado' || st == 'não concluído' || st == 'nao concluido') {
+      return false;
     }
-    return sum;
+    if (onlyCompleted) {
+      return st == 'concluído' || st == 'concluido';
+    }
+    return true;
   }
 
-  double _totalComissoes({bool onlyCompleted = false}) {
+  double _totalReceita({bool onlyCompleted = true}) {
     double sum = 0;
     for (final b in _bookings) {
-      final st = (b['status'] ?? 'confirmado').toString().toLowerCase();
-      if (st == 'cancelado') continue;
-      if (onlyCompleted && st != 'concluído' && st != 'concluido') continue;
-      sum += _calcBookingCommission(b);
-    }
-    return sum;
-  }
-
-  double _barberTotalGenerated(String barberName, {bool onlyCompleted = false}) {
-    final target = barberName.trim().toLowerCase();
-    if (target.isEmpty) return 0;
-    double sum = 0;
-    for (final b in _bookings) {
-      final st = (b['status'] ?? 'confirmado').toString().toLowerCase();
-      if (st == 'cancelado') continue;
-      if (onlyCompleted && st != 'concluído' && st != 'concluido') continue;
-      final bName = (b['barberName'] ?? '').toString().trim().toLowerCase();
-      if (bName == target || bName.contains(target) || target.contains(bName)) {
+      if (b is Map && _shouldCountBooking(b, onlyCompleted: onlyCompleted)) {
         sum += _calcBookingValue(b);
       }
     }
     return sum;
+  }
+
+  double _totalComissoes({bool onlyCompleted = true}) {
+    double sum = 0;
+    for (final b in _bookings) {
+      if (b is Map && _shouldCountBooking(b, onlyCompleted: onlyCompleted)) {
+        sum += _calcBookingCommission(b);
+      }
+    }
+    return sum;
+  }
+
+  Map<String, dynamic> _barberStats(
+    String barberName, {
+    String? period,
+    bool onlyCompleted = true,
+  }) {
+    final target = barberName.trim().toLowerCase();
+    double produced = 0;
+    double commission = 0;
+    int count = 0;
+    final commPct = _getBarberCommissionPct(barberName);
+    final List matchedBookings = [];
+
+    if (target.isNotEmpty) {
+      for (final b in _bookings) {
+        if (b is! Map) continue;
+        final bName = (b['barberName'] ?? '').toString().trim().toLowerCase();
+        final sameBarber =
+            bName == target || bName.contains(target) || target.contains(bName);
+        if (!sameBarber) continue;
+        if (!_shouldCountBooking(b, onlyCompleted: onlyCompleted)) continue;
+        if (period != null && !_matchesPeriod(b, period)) continue;
+
+        final val = _calcBookingValue(b);
+        final comm = val * (commPct / 100.0);
+        produced += val;
+        commission += comm;
+        count++;
+        matchedBookings.add(b);
+      }
+    }
+
+    return {
+      'produced': produced,
+      'commission': commission,
+      'count': count,
+      'bookings': matchedBookings,
+    };
+  }
+
+  double _barberTotalGenerated(String barberName, {bool onlyCompleted = true}) {
+    final stats = _barberStats(barberName, onlyCompleted: onlyCompleted);
+    return (stats['produced'] as double?) ?? 0;
   }
 
   String _buildServiceSummary(Map b) {
@@ -935,6 +1035,20 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final String client = (b['clientName'] ?? 'Cliente').toString();
     final String barber = (b['barberName'] ?? 'Barbeiro').toString();
 
+    setState(() {
+      final idx = _bookings.indexWhere(
+        (item) =>
+            item is Map && (item['firebaseKey'] ?? '').toString() == firebaseKey,
+      );
+      if (idx != -1 && _bookings[idx] is Map) {
+        final updated = Map.from(_bookings[idx] as Map);
+        updated['status'] = 'concluído';
+        updated['attended'] = true;
+        updated['completedAt'] = DateTime.now().toIso8601String();
+        _bookings[idx] = updated;
+      }
+    });
+
     await http.patch(
       Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'),
       headers: {'Content-Type': 'application/json'},
@@ -951,7 +1065,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '$client concluído! Comissão de R\$ ${comm.toStringAsFixed(2)} registada para $barber.',
+          '$client concluído! Comissão de R\$ ${comm.toStringAsFixed(2)} somada para $barber.',
         ),
       ),
     );
@@ -962,6 +1076,20 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     if (firebaseKey.isEmpty) return;
 
     final String client = (b['clientName'] ?? 'Cliente').toString();
+
+    setState(() {
+      final idx = _bookings.indexWhere(
+        (item) =>
+            item is Map && (item['firebaseKey'] ?? '').toString() == firebaseKey,
+      );
+      if (idx != -1 && _bookings[idx] is Map) {
+        final updated = Map.from(_bookings[idx] as Map);
+        updated['status'] = 'não concluído';
+        updated['attended'] = false;
+        updated['completedAt'] = null;
+        _bookings[idx] = updated;
+      }
+    });
 
     await http.patch(
       Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'),
@@ -978,7 +1106,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$client marcado como não concluído.'),
+        content: Text(
+          '$client marcado como não concluído (descontado do caixa e comissão).',
+        ),
       ),
     );
   }
@@ -1595,6 +1725,105 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
+  void _openBarberReportDialog(String barberName, double commPct) {
+    final weekly = _barberStats(
+      barberName,
+      period: 'semanal',
+      onlyCompleted: _onlyCompletedInAccounting,
+    );
+    final monthly = _barberStats(
+      barberName,
+      period: 'mensal',
+      onlyCompleted: _onlyCompletedInAccounting,
+    );
+    final activeList = (monthly['bookings'] as List);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141417),
+        title: Text(
+          'Relatório • $barberName (${commPct.toStringAsFixed(0)}%)',
+          style: const TextStyle(color: Color(0xFFF3D97E)),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _onlyCompletedInAccounting
+                    ? 'Base: Apenas atendimentos CONCLUÍDOS'
+                    : 'Base: Todos os atendimentos ativos',
+                style: const TextStyle(fontSize: 11, color: Colors.white70),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'SEMANAL (ÚLTIMOS 7 DIAS)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFF3D97E),
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                'Atendimentos: ${weekly['count']} • Produzido: R\$ ${(weekly['produced'] as double).toStringAsFixed(2)} • Comissão: R\$ ${(weekly['commission'] as double).toStringAsFixed(2)}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'MENSAL (MÊS ATUAL)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFF3D97E),
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                'Atendimentos: ${monthly['count']} • Produzido: R\$ ${(monthly['produced'] as double).toStringAsFixed(2)} • Comissão: R\$ ${(monthly['commission'] as double).toStringAsFixed(2)}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              const Divider(height: 18, color: Colors.white24),
+              const Text(
+                'DETALHE NO MÊS:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                  color: Colors.greenAccent,
+                ),
+              ),
+              const SizedBox(height: 6),
+              if (activeList.isEmpty)
+                const Text(
+                  'Sem atendimentos registados neste período.',
+                  style: TextStyle(fontSize: 12, color: Colors.white60),
+                )
+              else
+                ...activeList.map((b) {
+                  final mapB = b as Map;
+                  final v = _calcBookingValue(mapB);
+                  final c = v * (commPct / 100.0);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '• ${mapB['dateLabel'] ?? ''} ${mapB['time'] ?? ''} — ${mapB['clientName'] ?? 'Cliente'} (${_buildServiceSummary(mapB)}) • R\$ ${v.toStringAsFixed(2)} / Com.: R\$ ${c.toStringAsFixed(2)}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fechar'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _openAddPauseDialog() async {
     final dateCtrl = TextEditingController(text: '22/11/2026');
     final startCtrl = TextEditingController(text: '12:00');
@@ -1705,9 +1934,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final double liquidoCasa = receita - totalComissao;
 
     final List visibleBookings = _bookings.where((b) {
+      if (b is! Map) return false;
       if (!_onlyCompletedInAccounting) return true;
-      final st = (b['status'] ?? '').toString().toLowerCase();
-      return st == 'concluído' || st == 'concluido';
+      return _isCompletedStatus(b);
     }).toList();
 
     return RefreshIndicator(
@@ -1854,7 +2083,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 style: TextStyle(fontSize: 13),
               ),
               subtitle: const Text(
-                'Ao clicar em Concluir ou Não concluído, o total e a comissão do barbeiro são atualizados.',
+                'Ativo por padrão: ao clicar em Concluir soma; ao clicar em Não concluído não conta.',
                 style: TextStyle(fontSize: 11, color: Colors.white70),
               ),
               value: _onlyCompletedInAccounting,
@@ -1876,8 +2105,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           ...visibleBookings.map((b) {
             final String key = (b['firebaseKey'] ?? '').toString();
             final String status = (b['status'] ?? 'confirmado').toString();
-            final bool isDone = status.toLowerCase() == 'concluído' ||
-                status.toLowerCase() == 'concluido';
+            final bool isDone = _isCompletedStatus(b);
+            final bool countsInTotals = _shouldCountBooking(
+              b,
+              onlyCompleted: _onlyCompletedInAccounting,
+            );
             final double val = _calcBookingValue(b);
             final double comm = _calcBookingCommission(b);
             final String srvNames = _buildServiceSummary(b);
@@ -1899,7 +2131,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Barbeiro: ${b['barberName'] ?? 'Mr. Jone'} • Receita: R\$ ${val.toStringAsFixed(2)} • Comissão: R\$ ${comm.toStringAsFixed(2)} • $status',
+                      'Barbeiro: ${b['barberName'] ?? 'Mr. Jone'} • Receita: R\$ ${val.toStringAsFixed(2)} • Comissão: R\$ ${comm.toStringAsFixed(2)} • $status${countsInTotals ? '' : ' (não somado)'}',
                       style: const TextStyle(fontSize: 12),
                     ),
                     Text(
@@ -2078,7 +2310,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildExpedienteTab() {
+
+  Widget _buildExpedienteTab() {
     final ordem = ['1', '2', '3', '4', '5', '6', '0'];
     return ListView(
       padding: const EdgeInsets.all(14),
@@ -2184,8 +2417,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-
-  Widget _buildBarbersTab() {
+      Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
       child: ListView(
@@ -2200,7 +2432,63 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             icon: const Icon(Icons.person_add),
             label: const Text('Adicionar Barbeiro'),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          Card(
+            color: const Color(0xFF141417),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'RELATÓRIO POR BARBEIRO',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFF3D97E),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Center(child: Text('Semanal (7d)')),
+                          selected: _barberReportPeriod == 'semanal',
+                          selectedColor: const Color(0xFFD4AF37),
+                          labelStyle: TextStyle(
+                            color: _barberReportPeriod == 'semanal'
+                                ? Colors.black
+                                : Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          onSelected: (_) =>
+                              setState(() => _barberReportPeriod = 'semanal'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ChoiceChip(
+                          label: const Center(child: Text('Mensal (Mês)')),
+                          selected: _barberReportPeriod == 'mensal',
+                          selectedColor: const Color(0xFFD4AF37),
+                          labelStyle: TextStyle(
+                            color: _barberReportPeriod == 'mensal'
+                                ? Colors.black
+                                : Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          onSelected: (_) =>
+                              setState(() => _barberReportPeriod = 'mensal'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           if (_barbers.isEmpty)
             const Card(
               color: Color(0xFF141417),
@@ -2213,28 +2501,86 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           ..._barbers.map((b) {
             final name = (b['name'] ?? 'Barbeiro').toString();
             final commPct = double.tryParse('${b['commission'] ?? 50}') ?? 50;
-            final generated = _barberTotalGenerated(
+
+            final weeklyStats = _barberStats(
               name,
+              period: 'semanal',
               onlyCompleted: _onlyCompletedInAccounting,
             );
-            final commissionVal = generated * (commPct / 100.0);
+            final monthlyStats = _barberStats(
+              name,
+              period: 'mensal',
+              onlyCompleted: _onlyCompletedInAccounting,
+            );
+
+            final selectedStats =
+                _barberReportPeriod == 'semanal' ? weeklyStats : monthlyStats;
+            final periodLabel =
+                _barberReportPeriod == 'semanal' ? 'Semanal' : 'Mensal';
+            final selProduced = (selectedStats['produced'] as double?) ?? 0;
+            final selComm = (selectedStats['commission'] as double?) ?? 0;
+            final selCount = (selectedStats['count'] as int?) ?? 0;
+
+            final wProduced = (weeklyStats['produced'] as double?) ?? 0;
+            final wComm = (weeklyStats['commission'] as double?) ?? 0;
+            final mProduced = (monthlyStats['produced'] as double?) ?? 0;
+            final mComm = (monthlyStats['commission'] as double?) ?? 0;
+
             return Card(
               color: const Color(0xFF141417),
-              child: ListTile(
-                title: Text('$name • Comissão ${commPct.toStringAsFixed(0)}%'),
-                subtitle: Text(
-                  '${b['role'] ?? 'Barbeiro'} • Produzido: R\$ ${generated.toStringAsFixed(2)} • Total Comissão: R\$ ${commissionVal.toStringAsFixed(2)}',
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
+              margin: const EdgeInsets.only(bottom: 10),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: Color(0xFFF3D97E)),
-                      onPressed: () => _openBarberDialog(barber: b),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '$name • Comissão ${commPct.toStringAsFixed(0)}%',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFFF3D97E),
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Relatório detalhado',
+                              icon: const Icon(Icons.assessment,
+                                  color: Colors.greenAccent),
+                              onPressed: () =>
+                                  _openBarberReportDialog(name, commPct),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit,
+                                  color: Color(0xFFF3D97E)),
+                              onPressed: () => _openBarberDialog(barber: b),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete,
+                                  color: Colors.redAccent),
+                              onPressed: () =>
+                                  _deleteBarber((b['id'] ?? '').toString()),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: () => _deleteBarber((b['id'] ?? '').toString()),
+                    Text(
+                      '${b['role'] ?? 'Barbeiro'} • $periodLabel ($selCount atend.): Produzido R\$ ${selProduced.toStringAsFixed(2)} • Comissão R\$ ${selComm.toStringAsFixed(2)}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Semanal: R\$ ${wProduced.toStringAsFixed(2)} (Com. R\$ ${wComm.toStringAsFixed(2)})  |  Mensal: R\$ ${mProduced.toStringAsFixed(2)} (Com. R\$ ${mComm.toStringAsFixed(2)})',
+                      style:
+                          const TextStyle(fontSize: 11, color: Colors.white70),
                     ),
                   ],
                 ),
@@ -2337,7 +2683,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-      @override
+
+  @override
   Widget build(BuildContext context) {
     const gold = Color(0xFFD4AF37);
     if (!_unlocked) {
