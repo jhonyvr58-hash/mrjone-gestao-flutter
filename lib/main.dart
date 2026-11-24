@@ -477,7 +477,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _startActiveSession();
     }
   }
-    Future<void> _saveExpedienteAndSync() async {
+      Future<void> _saveExpedienteAndSync() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kPrefExpediente, jsonEncode(_expediente));
     await prefs.setInt(kPrefSlotStep, _slotStepMinutes);
@@ -659,7 +659,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       final int prevBookings =
           int.tryParse('${existingData['totalBookings'] ?? 0}') ?? 0;
 
-      final payload = {
+      final Map<String, dynamic> payload = {
         'name': cleanName.isNotEmpty
             ? cleanName
             : (existingData['name'] ?? 'Cliente').toString(),
@@ -921,7 +921,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-    DateTime? _parseDateString(String raw) {
+      DateTime? _parseDateString(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
     final slash = clean.split('/');
@@ -946,7 +946,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return null;
   }
 
-  /// Procura membro do plano por telefone ou nome.
   Map? _findPlanMember({String? clientName, String? clientPhone}) {
     final normPhone = _normalizePhone(clientPhone ?? '');
     final cleanName = (clientName ?? '').trim().toLowerCase();
@@ -976,9 +975,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return !expiry.isBefore(today);
   }
 
-  /// Retorna opções de catálogo permitidas para o cliente:
-  /// Se for membro de plano ativo e válido, retorna SOMENTE opções de plano
-  /// (e prioriza o plano vinculado caso exista).
   List _allowedCatalogOptions({String? clientName, String? clientPhone}) {
     final member = _findPlanMember(
       clientName: clientName,
@@ -1047,7 +1043,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     return all;
   }
-    Future<void> _saveManualClient({
+     Future<void> _saveManualClient({
     String? existingId,
     required String name,
     required String phone,
@@ -1056,7 +1052,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final normPhone = _normalizePhone(phone);
     if (cleanName.isEmpty) return;
 
-    final payload = {
+    final Map<String, dynamic> payload = {
       'name': cleanName,
       'phone': normPhone.isNotEmpty ? normPhone : phone.trim(),
       'updatedAt': DateTime.now().toIso8601String(),
@@ -1101,7 +1097,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final normPhone = _normalizePhone(phone);
     if (cleanName.isEmpty) return;
 
-    final payload = {
+    final Map<String, dynamic> payload = {
       'clientName': cleanName,
       'phone': normPhone.isNotEmpty ? normPhone : phone.trim(),
       'planName': planName.trim(),
@@ -1141,8 +1137,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     await http.delete(Uri.parse('$kFirebaseDbUrl/plan_members/$id.json'));
     await _fetchClientsAndPlanMembers();
   }
-
-  Future<void> _openClientDialog({Map? client}) async {
+      Future<void> _openClientDialog({Map? client}) async {
     final nameCtrl =
         TextEditingController(text: (client?['name'] ?? '').toString());
     final phoneCtrl =
@@ -1376,7 +1371,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-    int? _timeToMinutes(String raw) {
+     int? _timeToMinutes(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
     final parts = clean.split(':');
@@ -2114,7 +2109,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-     Future<void> _openEditBookingDialog(Map b) async {
+      Future<void> _openEditBookingDialog(Map b) async {
     final String firebaseKey = (b['firebaseKey'] ?? '').toString();
     if (firebaseKey.isEmpty) return;
 
@@ -2527,8 +2522,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         },
       ),
     );
-     }
-        Future<void> _saveCatalogItem({
+    }
+       Future<void> _saveCatalogItem({
     required bool isPlan,
     String? existingId,
     required String name,
@@ -2882,7 +2877,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   Future<void> _openAddPauseDialog() async {
-    final dateCtrl = TextEditingController(text: '23/11/2026');
+    final dateCtrl = TextEditingController(text: '24/11/2026');
     final startCtrl = TextEditingController(text: '12:00');
     final endCtrl = TextEditingController(text: '13:00');
     final reasonCtrl = TextEditingController(text: 'Almoço / Pausa');
@@ -3104,6 +3099,30 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const Text('COMISSÕES', style: TextStyle(fontSize: 11)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'R\$ ${totalComissao.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.greenAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Card(
+                  color: const Color(0xFF141417),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         const Text('LÍQUIDO CASA',
                             style: TextStyle(fontSize: 11)),
                         const SizedBox(height: 4),
@@ -3272,7 +3291,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-     Widget _buildCatalogTab() {
+      Widget _buildCatalogTab() {
     return RefreshIndicator(
       onRefresh: _fetchCatalog,
       child: ListView(
@@ -3781,106 +3800,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Color(0xFFF3D97E),
-                              fontSize: 15,
                             ),
-                          ),
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Relatório detalhado',
-                              icon: const Icon(Icons.assessment,
-                                  color: Colors.greenAccent),
-                              onPressed: () =>
-                                  _openBarberReportDialog(name, commPct),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.edit,
-                                  color: Color(0xFFF3D97E)),
-                              onPressed: () => _openBarberDialog(barber: b),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete,
-                                  color: Colors.redAccent),
-                              onPressed: () =>
-                                  _deleteBarber((b['id'] ?? '').toString()),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    Text(
-                      '${b['role'] ?? 'Barbeiro'} • $periodLabel ($selCount atend.): Produzido R\$ ${selProduced.toStringAsFixed(2)} • Comissão R\$ ${selComm.toStringAsFixed(2)}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Semanal: R\$ ${wProduced.toStringAsFixed(2)} (Com. R\$ ${wComm.toStringAsFixed(2)})  |  Mensal: R\$ ${mProduced.toStringAsFixed(2)} (Com. R\$ ${mComm.toStringAsFixed(2)})',
-                      style:
-                          const TextStyle(fontSize: 11, color: Colors.white70),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingsTab() {
-    return ListView(
-      padding: const EdgeInsets.all(14),
-      children: [
-        Card(
-          color: const Color(0xFF141417),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Monitorização Mesmo Fechado & Avisos',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFF3D97E),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Dica: no Android, deixe a bateria deste app em "Sem restrição" para o serviço em segundo plano não ser encerrado.',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-                const SizedBox(height: 10),
-                ElevatedButton.icon(
-                  onPressed: () => _showBookingNotification(
-                    'Teste • Barbearia Mr Jone',
-                    'Notificações locais ativadas neste dispositivo.',
-                    999,
-                  ),
-                  icon: const Icon(Icons.notifications_active),
-                  label: const Text('Testar Notificação no Dispositivo'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          color: const Color(0xFF141417),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Palavra-passe do Painel (Guardada no Dispositivo)',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFF3D97E),
-                  ),
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -4038,4 +3958,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-}
+   }                    
+           
+                        
+    
