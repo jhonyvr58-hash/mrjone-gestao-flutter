@@ -17,7 +17,6 @@ const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
 const String kPrefExpediente = 'mrjone_expediente_v1';
 const String kPrefPauses = 'mrjone_pauses_v1';
 const String kPrefSlotStep = 'mrjone_slot_step_v1';
-
 final Map<String, Map> kDefaultExpediente = {
   '1': {
     'name': 'Segunda',
@@ -600,7 +599,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-     Future<void> _syncAll() async {
+      Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'A sincronizar dados com o Firebase...';
@@ -744,8 +743,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     } catch (_) {}
   }
-
-  Future<void> _fetchBookings({bool silent = false}) async {
+     Future<void> _fetchBookings({bool silent = false}) async {
     if (!silent) {
       setState(() {
         _loading = true;
@@ -1043,7 +1041,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     return all;
   }
-     Future<void> _saveManualClient({
+      Future<void> _saveManualClient({
     String? existingId,
     required String name,
     required String phone,
@@ -1371,7 +1369,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-     int? _timeToMinutes(String raw) {
+      int? _timeToMinutes(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
     final parts = clean.split(':');
@@ -1517,8 +1515,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     return available;
   }
-
-  bool _isCompletedStatus(Map b) {
+      bool _isCompletedStatus(Map b) {
     final st = (b['status'] ?? '').toString().trim().toLowerCase();
     return st == 'concluído' || st == 'concluido';
   }
@@ -2522,8 +2519,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         },
       ),
     );
-    }
-       Future<void> _saveCatalogItem({
+      }
+      Future<void> _saveCatalogItem({
     required bool isPlan,
     String? existingId,
     required String name,
@@ -2941,8 +2938,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Widget _buildHeaderBanner() {
+      Widget _buildHeaderBanner() {
     return Container(
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 10),
@@ -3059,30 +3055,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFFF3D97E),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Card(
-                  color: const Color(0xFF141417),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('COMISSÕES', style: TextStyle(fontSize: 11)),
-                        const SizedBox(height: 4),
-                        Text(
-                          'R\$ ${totalComissao.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.greenAccent,
                           ),
                         ),
                       ],
@@ -3291,7 +3263,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildCatalogTab() {
+
+  Widget _buildCatalogTab() {
     return RefreshIndicator(
       onRefresh: _fetchCatalog,
       child: ListView(
@@ -3672,9 +3645,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         ],
       ),
     );
-  }
-
-  Widget _buildBarbersTab() {
+  } 
+      Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
       child: ListView(
@@ -3800,7 +3772,106 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Color(0xFFF3D97E),
+                              fontSize: 15,
                             ),
+                          ),
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Relatório detalhado',
+                              icon: const Icon(Icons.assessment,
+                                  color: Colors.greenAccent),
+                              onPressed: () =>
+                                  _openBarberReportDialog(name, commPct),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit,
+                                  color: Color(0xFFF3D97E)),
+                              onPressed: () => _openBarberDialog(barber: b),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete,
+                                  color: Colors.redAccent),
+                              onPressed: () =>
+                                  _deleteBarber((b['id'] ?? '').toString()),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    Text(
+                      '${b['role'] ?? 'Barbeiro'} • $periodLabel ($selCount atend.): Produzido R\$ ${selProduced.toStringAsFixed(2)} • Comissão R\$ ${selComm.toStringAsFixed(2)}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Semanal: R\$ ${wProduced.toStringAsFixed(2)} (Com. R\$ ${wComm.toStringAsFixed(2)})  |  Mensal: R\$ ${mProduced.toStringAsFixed(2)} (Com. R\$ ${mComm.toStringAsFixed(2)})',
+                      style:
+                          const TextStyle(fontSize: 11, color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsTab() {
+    return ListView(
+      padding: const EdgeInsets.all(14),
+      children: [
+        Card(
+          color: const Color(0xFF141417),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Monitorização Mesmo Fechado & Avisos',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF3D97E),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Dica: no Android, deixe a bateria deste app em "Sem restrição" para o serviço em segundo plano não ser encerrado.',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+                const SizedBox(height: 10),
+                ElevatedButton.icon(
+                  onPressed: () => _showBookingNotification(
+                    'Teste • Barbearia Mr Jone',
+                    'Notificações locais ativadas neste dispositivo.',
+                    999,
+                  ),
+                  icon: const Icon(Icons.notifications_active),
+                  label: const Text('Testar Notificação no Dispositivo'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          color: const Color(0xFF141417),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Palavra-passe do Painel (Guardada no Dispositivo)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF3D97E),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -3958,7 +4029,4 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-   }                    
-           
-                        
-    
+}
