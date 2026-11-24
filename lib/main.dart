@@ -25,7 +25,7 @@ final Map<String, Map> kDefaultExpediente = {
     't1Fim': '12:00',
     't2Ativo': true,
     't2Inicio': '14:00',
-    't2Fim': '18:30',
+    't2Fim': '19:00',
   },
   '2': {
     'name': 'Terça',
@@ -34,7 +34,7 @@ final Map<String, Map> kDefaultExpediente = {
     't1Fim': '12:00',
     't2Ativo': true,
     't2Inicio': '14:00',
-    't2Fim': '19:30',
+    't2Fim': '19:00',
   },
   '3': {
     'name': 'Quarta',
@@ -43,7 +43,7 @@ final Map<String, Map> kDefaultExpediente = {
     't1Fim': '12:00',
     't2Ativo': true,
     't2Inicio': '14:00',
-    't2Fim': '19:30',
+    't2Fim': '19:00',
   },
   '4': {
     'name': 'Quinta',
@@ -52,7 +52,7 @@ final Map<String, Map> kDefaultExpediente = {
     't1Fim': '12:00',
     't2Ativo': true,
     't2Inicio': '14:00',
-    't2Fim': '19:30',
+    't2Fim': '19:00',
   },
   '5': {
     'name': 'Sexta',
@@ -69,13 +69,13 @@ final Map<String, Map> kDefaultExpediente = {
     't1Inicio': '08:00',
     't1Fim': '12:00',
     't2Ativo': true,
-    't2Inicio': '15:00',
+    't2Inicio': '14:00',
     't2Fim': '20:00',
   },
   '0': {
     'name': 'Domingo',
     'ativo': true,
-    't1Inicio': '09:00',
+    't1Inicio': '08:00',
     't1Fim': '14:00',
     't2Ativo': false,
     't2Inicio': '14:00',
@@ -212,12 +212,13 @@ Future<void> _initNotifications() async {
   );
 
   const AndroidNotificationChannel bookingsChannel = AndroidNotificationChannel(
-    'mrjone_bookings_channel',
-    'Novos Agendamentos',
-    description: 'Avisos quando um cliente faz um novo agendamento',
+    'mrjone_bookings_alert_v2',
+    'Novos Agendamentos • Barbearia Mr Jone',
+    description: 'Avisos na tela quando um cliente marca no site',
     importance: Importance.max,
     playSound: true,
     enableVibration: true,
+    showBadge: true,
   );
 
   await androidImpl?.createNotificationChannel(bgChannel);
@@ -232,16 +233,18 @@ Future<void> _showBookingNotification(
   bool ongoing = false,
 }) async {
   final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-    ongoing ? 'mrjone_bg_monitor' : 'mrjone_bookings_channel',
-    ongoing ? 'Monitoramento Mr Jone' : 'Novos Agendamentos',
+    ongoing ? 'mrjone_bg_monitor' : 'mrjone_bookings_alert_v2',
+    ongoing ? 'Monitoramento Mr Jone' : 'Novos Agendamentos • Barbearia Mr Jone',
     channelDescription: ongoing
         ? 'Mantém a monitorização ativa mesmo com o app fechado'
-        : 'Avisos quando um cliente faz um novo agendamento',
+        : 'Avisos na tela quando um cliente marca no site',
     importance: ongoing ? Importance.low : Importance.max,
-    priority: ongoing ? Priority.low : Priority.high,
+    priority: ongoing ? Priority.low : Priority.max,
     playSound: !ongoing,
     enableVibration: !ongoing,
     ongoing: ongoing,
+    visibility: NotificationVisibility.public,
+    fullScreenIntent: !ongoing,
   );
 
   final NotificationDetails details =
@@ -282,11 +285,14 @@ void _onStartBackground(ServiceInstance service) async {
             }
           });
 
-          int notifId = 500;
+          int notifId = 500 + (DateTime.now().second % 400);
           for (final novo in brandNew) {
-            final client = (novo['clientName'] ?? 'Cliente').toString();
-            final dateLbl = (novo['dateLabel'] ?? '').toString();
-            final timeLbl = (novo['time'] ?? '').toString();
+            final client =
+                (novo['clientName'] ?? novo['name'] ?? 'Cliente').toString();
+            final dateLbl =
+                (novo['dateLabel'] ?? novo['date'] ?? '').toString();
+            final timeLbl =
+                (novo['time'] ?? novo['hour'] ?? '').toString();
             final barber =
                 (novo['barberName'] ?? 'Barbearia Mr Jone').toString();
             await _showBookingNotification(
@@ -304,7 +310,7 @@ void _onStartBackground(ServiceInstance service) async {
 
   await checkNewBookingsBg();
 
-  Timer.periodic(const Duration(seconds: 30), (_) async {
+  Timer.periodic(const Duration(seconds: 15), (_) async {
     await checkNewBookingsBg();
   });
 }
@@ -319,7 +325,7 @@ Future<void> _initBackgroundService() async {
       notificationChannelId: 'mrjone_bg_monitor',
       initialNotificationTitle: 'Barbearia Mr Jone • Gestão Ativa',
       initialNotificationContent:
-          'A monitorizar agendamentos mesmo com o app fechado',
+          'A monitorizar novos agendamentos mesmo fechado',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -370,7 +376,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   int _tabIndex = 0;
 
   bool _onlyCompletedInAccounting = true;
-  String _barberReportPeriod = 'mensal'; // 'semanal' ou 'mensal'
+  String _barberReportPeriod = 'mensal';
 
   String _statusMsg = 'A aguardar ligação ao Firebase';
   String _adminPass = kDefaultAdminPass;
@@ -422,7 +428,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     _syncAll();
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 25),
+      const Duration(seconds: 12),
       (_) => _fetchBookings(silent: true),
     );
   }
@@ -599,7 +605,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-      Future<void> _syncAll() async {
+     Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'A sincronizar dados com o Firebase...';
@@ -743,7 +749,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     } catch (_) {}
   }
-     Future<void> _fetchBookings({bool silent = false}) async {
+      String _bookingSortKey(Map item) {
+    final created = (item['createdAt'] ?? item['timestamp'] ?? '').toString();
+    if (created.isNotEmpty) return created;
+    return (item['firebaseKey'] ?? '').toString();
+  }
+
+  Future<void> _fetchBookings({bool silent = false}) async {
     if (!silent) {
       setState(() {
         _loading = true;
@@ -751,6 +763,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     }
     try {
+      await _initNotifications();
       final prefs = await SharedPreferences.getInstance();
       final savedKeys = prefs.getStringList(kPrefKnownBookingKeys) ?? [];
       _knownKeys.addAll(savedKeys);
@@ -760,7 +773,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
       final res = await http.get(uri);
       if (res.statusCode == 200) {
-        final decoded = jsonDecode(res.body);
+        final decoded = res.body == 'null' ? null : jsonDecode(res.body);
         final List loaded = [];
         final List brandNew = [];
         final List<String> allKeys = [];
@@ -772,6 +785,18 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               allKeys.add(k);
               final item = Map.from(val);
               item['firebaseKey'] = k;
+              if ((item['clientName'] ?? '').toString().trim().isEmpty &&
+                  (item['name'] ?? '').toString().trim().isNotEmpty) {
+                item['clientName'] = item['name'];
+              }
+              if ((item['dateLabel'] ?? '').toString().trim().isEmpty &&
+                  (item['date'] ?? '').toString().trim().isNotEmpty) {
+                item['dateLabel'] = item['date'];
+              }
+              if ((item['time'] ?? '').toString().trim().isEmpty &&
+                  (item['hour'] ?? '').toString().trim().isNotEmpty) {
+                item['time'] = item['hour'];
+              }
               loaded.add(item);
 
               if (_firstLoadDone && !_knownKeys.contains(k)) {
@@ -785,7 +810,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         await prefs.setStringList(kPrefKnownBookingKeys, allKeys);
         _firstLoadDone = true;
 
-        int notifId = 100;
+        int notifId = 100 + (DateTime.now().second % 80);
         for (final novo in brandNew) {
           final client = (novo['clientName'] ?? 'Cliente').toString();
           final phone = (novo['clientPhone'] ?? novo['phone'] ?? '').toString();
@@ -801,15 +826,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           );
 
           await _showBookingNotification(
-            'Nova marcação • $client',
+            'Novo agendamento • $client',
             '$dateLbl às $timeLbl ($barber)',
             notifId++,
           );
         }
 
-        loaded.sort((a, b) => (b['createdAt'] ?? '')
-            .toString()
-            .compareTo((a['createdAt'] ?? '').toString()));
+        loaded.sort((a, b) => _bookingSortKey(b as Map)
+            .compareTo(_bookingSortKey(a as Map)));
 
         if (!mounted) return;
         setState(() {
@@ -817,7 +841,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           if (brandNew.isNotEmpty) {
             _newAlerts = [...brandNew, ..._newAlerts];
           }
-          _statusMsg = 'Online • ${loaded.length} registo(s)';
+          _statusMsg = 'Online • ${loaded.length} agendamento(s)';
         });
       } else {
         if (!mounted) return;
@@ -832,8 +856,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
   }
-
-  Future<void> _fetchCatalog() async {
+     Future<void> _fetchCatalog() async {
     try {
       final srvRes = await http.get(Uri.parse('$kFirebaseDbUrl/services.json'));
       final plnRes = await http.get(Uri.parse('$kFirebaseDbUrl/plans.json'));
@@ -1515,7 +1538,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     return available;
   }
-      bool _isCompletedStatus(Map b) {
+
+  bool _isCompletedStatus(Map b) {
     final st = (b['status'] ?? '').toString().trim().toLowerCase();
     return st == 'concluído' || st == 'concluido';
   }
@@ -1678,7 +1702,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       'bookings': matchedBookings,
     };
   }
-      String _buildServiceSummary(Map b) {
+     String _buildServiceSummary(Map b) {
     final List<String> srvNames = [];
     if (b['items'] is List) {
       for (final it in b['items'] as List) {
@@ -2106,7 +2130,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Future<void> _openEditBookingDialog(Map b) async {
+     Future<void> _openEditBookingDialog(Map b) async {
     final String firebaseKey = (b['firebaseKey'] ?? '').toString();
     if (firebaseKey.isEmpty) return;
 
@@ -2519,8 +2543,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         },
       ),
     );
-      }
-      Future<void> _saveCatalogItem({
+  }
+
+  Future<void> _saveCatalogItem({
     required bool isPlan,
     String? existingId,
     required String name,
@@ -2982,11 +3007,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         _totalComissoes(onlyCompleted: _onlyCompletedInAccounting);
     final double liquidoCasa = receita - totalComissao;
 
-    final List visibleBookings = _bookings.where((b) {
-      if (b is! Map) return false;
-      if (!_onlyCompletedInAccounting) return true;
-      return _isCompletedStatus(b) || _isNotCompletedStatus(b) || true;
-    }).toList();
+    final List visibleBookings =
+        _bookings.where((b) => b is Map).toList();
 
     return RefreshIndicator(
       onRefresh: _syncAll,
@@ -3151,6 +3173,17 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           const SizedBox(height: 6),
           if (_loading && _bookings.isEmpty)
             const Center(child: CircularProgressIndicator()),
+          if (!_loading && visibleBookings.isEmpty)
+            const Card(
+              color: Color(0xFF141417),
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Text(
+                  'Nenhum agendamento encontrado no Firebase. Puxe para baixo ou toque em atualizar.',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+              ),
+            ),
           ...visibleBookings.map((b) {
             final String key = (b['firebaseKey'] ?? '').toString();
             final String status = (b['status'] ?? 'confirmado').toString();
@@ -3645,7 +3678,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         ],
       ),
     );
-  } 
+  }
       Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
