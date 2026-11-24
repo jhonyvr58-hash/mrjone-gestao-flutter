@@ -212,7 +212,7 @@ Future<void> _initNotifications() async {
   );
 
   const AndroidNotificationChannel bookingsChannel = AndroidNotificationChannel(
-    'mrjone_bookings_alert_v2',
+    'mrjone_bookings_alert_v3',
     'Novos Agendamentos • Barbearia Mr Jone',
     description: 'Avisos na tela quando um cliente marca no site',
     importance: Importance.max,
@@ -233,7 +233,7 @@ Future<void> _showBookingNotification(
   bool ongoing = false,
 }) async {
   final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-    ongoing ? 'mrjone_bg_monitor' : 'mrjone_bookings_alert_v2',
+    ongoing ? 'mrjone_bg_monitor' : 'mrjone_bookings_alert_v3',
     ongoing ? 'Monitoramento Mr Jone' : 'Novos Agendamentos • Barbearia Mr Jone',
     channelDescription: ongoing
         ? 'Mantém a monitorização ativa mesmo com o app fechado'
@@ -277,7 +277,7 @@ void _onStartBackground(ServiceInstance service) async {
             if (val is Map) {
               final k = key.toString();
               currentKeys.add(k);
-              if (savedList.isNotEmpty && !knownSet.contains(k)) {
+              if (!knownSet.contains(k)) {
                 final item = Map.from(val);
                 item['firebaseKey'] = k;
                 brandNew.add(item);
@@ -285,21 +285,33 @@ void _onStartBackground(ServiceInstance service) async {
             }
           });
 
-          int notifId = 500 + (DateTime.now().second % 400);
-          for (final novo in brandNew) {
-            final client =
-                (novo['clientName'] ?? novo['name'] ?? 'Cliente').toString();
-            final dateLbl =
-                (novo['dateLabel'] ?? novo['date'] ?? '').toString();
-            final timeLbl =
-                (novo['time'] ?? novo['hour'] ?? '').toString();
-            final barber =
-                (novo['barberName'] ?? 'Barbearia Mr Jone').toString();
-            await _showBookingNotification(
-              'Novo agendamento • $client',
-              '$dateLbl às $timeLbl ($barber)',
-              notifId++,
-            );
+          if (savedList.isNotEmpty && brandNew.isNotEmpty) {
+            int notifId = 500 + (DateTime.now().second % 400);
+            for (final novo in brandNew) {
+              final client = (novo['clientName'] ??
+                      novo['name'] ??
+                      novo['cliente'] ??
+                      'Cliente')
+                  .toString();
+              final dateLbl = (novo['dateLabel'] ??
+                      novo['date'] ??
+                      novo['data'] ??
+                      '')
+                  .toString();
+              final timeLbl =
+                  (novo['time'] ?? novo['hour'] ?? novo['horario'] ?? '')
+                      .toString();
+              final barber = (novo['barberName'] ??
+                      novo['barber'] ??
+                      novo['profissional'] ??
+                      'Barbearia Mr Jone')
+                  .toString();
+              await _showBookingNotification(
+                'Novo agendamento • $client',
+                '$dateLbl às $timeLbl ($barber)',
+                notifId++,
+              );
+            }
           }
 
           await prefs.setStringList(kPrefKnownBookingKeys, currentKeys);
@@ -310,7 +322,7 @@ void _onStartBackground(ServiceInstance service) async {
 
   await checkNewBookingsBg();
 
-  Timer.periodic(const Duration(seconds: 15), (_) async {
+  Timer.periodic(const Duration(seconds: 8), (_) async {
     await checkNewBookingsBg();
   });
 }
@@ -428,7 +440,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     _syncAll();
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 12),
+      const Duration(seconds: 8),
       (_) => _fetchBookings(silent: true),
     );
   }
@@ -605,7 +617,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-     Future<void> _syncAll() async {
+      Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'A sincronizar dados com o Firebase...';
@@ -638,6 +650,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     required String phone,
     String? bookingDate,
     String? bookingTime,
+    bool incrementCount = false,
   }) async {
     final cleanName = name.trim();
     final normPhone = _normalizePhone(phone);
@@ -671,11 +684,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         'phone': normPhone.isNotEmpty
             ? normPhone
             : (existingData['phone'] ?? phone).toString(),
-        'lastBookingDate': bookingDate ??
-            (existingData['lastBookingDate'] ?? '').toString(),
-        'lastBookingTime': bookingTime ??
-            (existingData['lastBookingTime'] ?? '').toString(),
-        'totalBookings': prevBookings + 1,
+        'lastBookingDate': (bookingDate != null && bookingDate.isNotEmpty)
+            ? bookingDate
+            : (existingData['lastBookingDate'] ?? '').toString(),
+        'lastBookingTime': (bookingTime != null && bookingTime.isNotEmpty)
+            ? bookingTime
+            : (existingData['lastBookingTime'] ?? '').toString(),
+        'totalBookings': incrementCount ? prevBookings + 1 : prevBookings,
         'updatedAt': DateTime.now().toIso8601String(),
       };
 
@@ -687,6 +702,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         );
       } else {
         payload['createdAt'] = DateTime.now().toIso8601String();
+        payload['totalBookings'] = incrementCount ? 1 : 0;
         await http.post(
           Uri.parse('$kFirebaseDbUrl/clients.json'),
           headers: {'Content-Type': 'application/json'},
@@ -749,10 +765,118 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     } catch (_) {}
   }
-      String _bookingSortKey(Map item) {
-    final created = (item['createdAt'] ?? item['timestamp'] ?? '').toString();
-    if (created.isNotEmpty) return created;
-    return (item['firebaseKey'] ?? '').toString();
+      Map _normalizeBookingMap(String key, Map raw) {
+    final item = Map.from(raw);
+    item['firebaseKey'] = key;
+
+    final resolvedName = (item['clientName'] ??
+            item['name'] ??
+            item['cliente'] ??
+            item['customerName'] ??
+            '')
+        .toString()
+        .trim();
+    if (resolvedName.isNotEmpty) {
+      item['clientName'] = resolvedName;
+    }
+
+    final resolvedPhone = (item['clientPhone'] ??
+            item['phone'] ??
+            item['whatsapp'] ??
+            item['telefone'] ??
+            '')
+        .toString()
+        .trim();
+    if (resolvedPhone.isNotEmpty) {
+      item['clientPhone'] = resolvedPhone;
+    }
+
+    final resolvedDate = (item['dateLabel'] ??
+            item['date'] ??
+            item['data'] ??
+            '')
+        .toString()
+        .trim();
+    if (resolvedDate.isNotEmpty) {
+      item['dateLabel'] = resolvedDate;
+    }
+
+    final resolvedTime = (item['time'] ??
+            item['hour'] ??
+            item['horario'] ??
+            '')
+        .toString()
+        .trim();
+    if (resolvedTime.isNotEmpty) {
+      item['time'] = resolvedTime;
+    }
+
+    final resolvedBarber = (item['barberName'] ??
+            item['barber'] ??
+            item['profissional'] ??
+            'Mr. Jone')
+        .toString()
+        .trim();
+    item['barberName'] = resolvedBarber.isEmpty ? 'Mr. Jone' : resolvedBarber;
+
+    if (item['items'] == null ||
+        (item['items'] is List && (item['items'] as List).isEmpty)) {
+      final srvName = (item['serviceName'] ??
+              item['service'] ??
+              item['servicos'] ??
+              item['planName'] ??
+              '')
+          .toString()
+          .trim();
+      final rawPrice = item['price'] ??
+          item['total'] ??
+          item['totalPrice'] ??
+          item['valor'] ??
+          0;
+      final parsedPrice = double.tryParse(
+            rawPrice.toString().replaceAll('R\$', '').replaceAll(',', '.').trim(),
+          ) ??
+          0.0;
+      final parsedDur = int.tryParse('${item['duration'] ?? 30}') ?? 30;
+      if (srvName.isNotEmpty || parsedPrice > 0) {
+        item['items'] = [
+          {
+            'name': srvName.isEmpty ? 'Atendimento' : srvName,
+            'price': parsedPrice,
+            'duration': parsedDur,
+            'isPlan': item['isPlan'] == true,
+            'sessionsPerMonth': int.tryParse('${item['sessionsPerMonth'] ?? 4}') ?? 4,
+          }
+        ];
+      }
+    }
+
+    return item;
+  }
+
+  int _bookingSortEpoch(Map item) {
+    final rawCreated = item['createdAt'] ?? item['timestamp'] ?? item['created_at'];
+    if (rawCreated is num) {
+      final v = rawCreated.toInt();
+      return v > 1000000000000 ? v : v * 1000;
+    }
+    if (rawCreated != null) {
+      final s = rawCreated.toString().trim();
+      final asNum = int.tryParse(s);
+      if (asNum != null) {
+        return asNum > 1000000000000 ? asNum : asNum * 1000;
+      }
+      final parsed = DateTime.tryParse(s);
+      if (parsed != null) return parsed.millisecondsSinceEpoch;
+    }
+
+    final dt = _parseDateString((item['dateLabel'] ?? item['date'] ?? '').toString());
+    final mins = _timeToMinutes((item['time'] ?? '').toString()) ?? 0;
+    if (dt != null) {
+      return DateTime(dt.year, dt.month, dt.day, mins ~/ 60, mins % 60)
+          .millisecondsSinceEpoch;
+    }
+    return 0;
   }
 
   Future<void> _fetchBookings({bool silent = false}) async {
@@ -783,20 +907,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             if (val is Map) {
               final k = key.toString();
               allKeys.add(k);
-              final item = Map.from(val);
-              item['firebaseKey'] = k;
-              if ((item['clientName'] ?? '').toString().trim().isEmpty &&
-                  (item['name'] ?? '').toString().trim().isNotEmpty) {
-                item['clientName'] = item['name'];
-              }
-              if ((item['dateLabel'] ?? '').toString().trim().isEmpty &&
-                  (item['date'] ?? '').toString().trim().isNotEmpty) {
-                item['dateLabel'] = item['date'];
-              }
-              if ((item['time'] ?? '').toString().trim().isEmpty &&
-                  (item['hour'] ?? '').toString().trim().isNotEmpty) {
-                item['time'] = item['hour'];
-              }
+              final item = _normalizeBookingMap(k, val);
               loaded.add(item);
 
               if (_firstLoadDone && !_knownKeys.contains(k)) {
@@ -810,10 +921,21 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         await prefs.setStringList(kPrefKnownBookingKeys, allKeys);
         _firstLoadDone = true;
 
+        for (final item in loaded) {
+          final m = item as Map;
+          await _upsertClientFromBooking(
+            name: (m['clientName'] ?? '').toString(),
+            phone: (m['clientPhone'] ?? '').toString(),
+            bookingDate: (m['dateLabel'] ?? '').toString(),
+            bookingTime: (m['time'] ?? '').toString(),
+            incrementCount: false,
+          );
+        }
+
         int notifId = 100 + (DateTime.now().second % 80);
         for (final novo in brandNew) {
           final client = (novo['clientName'] ?? 'Cliente').toString();
-          final phone = (novo['clientPhone'] ?? novo['phone'] ?? '').toString();
+          final phone = (novo['clientPhone'] ?? '').toString();
           final dateLbl = (novo['dateLabel'] ?? '').toString();
           final timeLbl = (novo['time'] ?? '').toString();
           final barber = (novo['barberName'] ?? 'Barbearia Mr Jone').toString();
@@ -823,6 +945,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             phone: phone,
             bookingDate: dateLbl,
             bookingTime: timeLbl,
+            incrementCount: true,
           );
 
           await _showBookingNotification(
@@ -832,8 +955,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           );
         }
 
-        loaded.sort((a, b) => _bookingSortKey(b as Map)
-            .compareTo(_bookingSortKey(a as Map)));
+        loaded.sort((a, b) => _bookingSortEpoch(b as Map)
+            .compareTo(_bookingSortEpoch(a as Map)));
 
         if (!mounted) return;
         setState(() {
@@ -856,7 +979,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
   }
-     Future<void> _fetchCatalog() async {
+      Future<void> _fetchCatalog() async {
     try {
       final srvRes = await http.get(Uri.parse('$kFirebaseDbUrl/services.json'));
       final plnRes = await http.get(Uri.parse('$kFirebaseDbUrl/plans.json'));
@@ -1149,6 +1272,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     await _upsertClientFromBooking(
       name: cleanName,
       phone: normPhone.isNotEmpty ? normPhone : phone.trim(),
+      incrementCount: false,
     );
     await _fetchClientsAndPlanMembers();
   }
@@ -1395,10 +1519,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       int? _timeToMinutes(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
-    final parts = clean.split(':');
-    if (parts.length < 2) return null;
-    final h = int.tryParse(parts[0].trim());
-    final m = int.tryParse(parts[1].trim());
+    final match = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(clean);
+    if (match == null) return null;
+    final h = int.tryParse(match.group(1)!);
+    final m = int.tryParse(match.group(2)!);
     if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) {
       return null;
     }
@@ -1621,8 +1745,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
     if (sum == 0) {
-      final fallbackPrice =
-          double.tryParse('${b['price'] ?? b['total'] ?? 0}') ?? 0;
+      final rawFallback = b['price'] ?? b['total'] ?? b['totalPrice'] ?? b['valor'] ?? 0;
+      final fallbackPrice = double.tryParse(
+            rawFallback.toString().replaceAll('R\$', '').replaceAll(',', '.').trim(),
+          ) ??
+          0;
       if (fallbackPrice > 0) sum = fallbackPrice;
     }
     return sum;
@@ -1702,7 +1829,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       'bookings': matchedBookings,
     };
   }
-     String _buildServiceSummary(Map b) {
+      String _buildServiceSummary(Map b) {
     final List<String> srvNames = [];
     if (b['items'] is List) {
       for (final it in b['items'] as List) {
@@ -1712,7 +1839,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
     if (srvNames.isNotEmpty) return srvNames.join(' + ');
-    final fallback = (b['serviceName'] ?? b['service'] ?? '').toString().trim();
+    final fallback = (b['serviceName'] ?? b['service'] ?? b['servicos'] ?? '')
+        .toString()
+        .trim();
     return fallback.isEmpty ? 'Atendimento agendado' : fallback;
   }
 
@@ -2087,6 +2216,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     phone: cPhone,
                     bookingDate: dateStr,
                     bookingTime: timeStr,
+                    incrementCount: true,
                   );
 
                   await http.post(
@@ -3468,7 +3598,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         value: ativo,
                         onChanged: (val) async {
                           setState(() => _expediente[d]?['ativo'] = val);
-                          await _saveExpedienteAndSync();
+                          awit _saveExpedienteAndSync();
                         },
                       ),
                     ],
