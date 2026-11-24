@@ -3598,7 +3598,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         value: ativo,
                         onChanged: (val) async {
                           setState(() => _expediente[d]?['ativo'] = val);
-                          awit _saveExpedienteAndSync();
+                          await _saveExpedienteAndSync();
                         },
                       ),
                     ],
