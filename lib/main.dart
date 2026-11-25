@@ -25,7 +25,7 @@ final Map<String, Map> kDefaultExpediente = {
     't1Fim': '12:00',
     't2Ativo': true,
     't2Inicio': '14:00',
-    't2Fim': '19:00',
+    't2Fim': '18:30',
   },
   '2': {
     'name': 'Terça',
@@ -34,7 +34,7 @@ final Map<String, Map> kDefaultExpediente = {
     't1Fim': '12:00',
     't2Ativo': true,
     't2Inicio': '14:00',
-    't2Fim': '19:00',
+    't2Fim': '19:30',
   },
   '3': {
     'name': 'Quarta',
@@ -43,7 +43,7 @@ final Map<String, Map> kDefaultExpediente = {
     't1Fim': '12:00',
     't2Ativo': true,
     't2Inicio': '14:00',
-    't2Fim': '19:00',
+    't2Fim': '19:30',
   },
   '4': {
     'name': 'Quinta',
@@ -52,7 +52,7 @@ final Map<String, Map> kDefaultExpediente = {
     't1Fim': '12:00',
     't2Ativo': true,
     't2Inicio': '14:00',
-    't2Fim': '19:00',
+    't2Fim': '19:30',
   },
   '5': {
     'name': 'Sexta',
@@ -69,20 +69,20 @@ final Map<String, Map> kDefaultExpediente = {
     't1Inicio': '08:00',
     't1Fim': '12:00',
     't2Ativo': true,
-    't2Inicio': '14:00',
+    't2Inicio': '15:00',
     't2Fim': '20:00',
   },
   '0': {
     'name': 'Domingo',
     'ativo': true,
-    't1Inicio': '08:00',
+    't1Inicio': '09:00',
     't1Fim': '14:00',
     't2Ativo': false,
     't2Inicio': '14:00',
     't2Fim': '18:00',
   },
 };
-final List kDefaultServices = [
+ final List kDefaultServices = [
   {
     'id': 'def_srv_1',
     'name': 'Cabelo e Barba (Combo Completo)',
@@ -186,7 +186,7 @@ final List kDefaultPlans = [
     'sessionsPerMonth': 4,
   },
 ];
-final FlutterLocalNotificationsPlugin kNotificationsPlugin =
+ final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
 Future<void> _initNotifications() async {
@@ -212,13 +212,12 @@ Future<void> _initNotifications() async {
   );
 
   const AndroidNotificationChannel bookingsChannel = AndroidNotificationChannel(
-    'mrjone_bookings_alert_v3',
-    'Novos Agendamentos • Barbearia Mr Jone',
-    description: 'Avisos na tela quando um cliente marca no site',
+    'mrjone_bookings_channel',
+    'Novos Agendamentos',
+    description: 'Avisos quando um cliente faz um novo agendamento',
     importance: Importance.max,
     playSound: true,
     enableVibration: true,
-    showBadge: true,
   );
 
   await androidImpl?.createNotificationChannel(bgChannel);
@@ -233,18 +232,16 @@ Future<void> _showBookingNotification(
   bool ongoing = false,
 }) async {
   final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-    ongoing ? 'mrjone_bg_monitor' : 'mrjone_bookings_alert_v3',
-    ongoing ? 'Monitoramento Mr Jone' : 'Novos Agendamentos • Barbearia Mr Jone',
+    ongoing ? 'mrjone_bg_monitor' : 'mrjone_bookings_channel',
+    ongoing ? 'Monitoramento Mr Jone' : 'Novos Agendamentos',
     channelDescription: ongoing
         ? 'Mantém a monitorização ativa mesmo com o app fechado'
-        : 'Avisos na tela quando um cliente marca no site',
+        : 'Avisos quando um cliente faz um novo agendamento',
     importance: ongoing ? Importance.low : Importance.max,
-    priority: ongoing ? Priority.low : Priority.max,
+    priority: ongoing ? Priority.low : Priority.high,
     playSound: !ongoing,
     enableVibration: !ongoing,
     ongoing: ongoing,
-    visibility: NotificationVisibility.public,
-    fullScreenIntent: !ongoing,
   );
 
   final NotificationDetails details =
@@ -252,7 +249,7 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
-@pragma('vm:entry-point')
+ @pragma('vm:entry-point')
 void _onStartBackground(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
   await _initNotifications();
@@ -277,7 +274,7 @@ void _onStartBackground(ServiceInstance service) async {
             if (val is Map) {
               final k = key.toString();
               currentKeys.add(k);
-              if (!knownSet.contains(k)) {
+              if (savedList.isNotEmpty && !knownSet.contains(k)) {
                 final item = Map.from(val);
                 item['firebaseKey'] = k;
                 brandNew.add(item);
@@ -285,33 +282,18 @@ void _onStartBackground(ServiceInstance service) async {
             }
           });
 
-          if (savedList.isNotEmpty && brandNew.isNotEmpty) {
-            int notifId = 500 + (DateTime.now().second % 400);
-            for (final novo in brandNew) {
-              final client = (novo['clientName'] ??
-                      novo['name'] ??
-                      novo['cliente'] ??
-                      'Cliente')
-                  .toString();
-              final dateLbl = (novo['dateLabel'] ??
-                      novo['date'] ??
-                      novo['data'] ??
-                      '')
-                  .toString();
-              final timeLbl =
-                  (novo['time'] ?? novo['hour'] ?? novo['horario'] ?? '')
-                      .toString();
-              final barber = (novo['barberName'] ??
-                      novo['barber'] ??
-                      novo['profissional'] ??
-                      'Barbearia Mr Jone')
-                  .toString();
-              await _showBookingNotification(
-                'Novo agendamento • $client',
-                '$dateLbl às $timeLbl ($barber)',
-                notifId++,
-              );
-            }
+          int notifId = 500;
+          for (final novo in brandNew) {
+            final client = (novo['clientName'] ?? 'Cliente').toString();
+            final dateLbl = (novo['dateLabel'] ?? '').toString();
+            final timeLbl = (novo['time'] ?? '').toString();
+            final barber =
+                (novo['barberName'] ?? 'Barbearia Mr Jone').toString();
+            await _showBookingNotification(
+              'Novo agendamento • $client',
+              '$dateLbl às $timeLbl ($barber)',
+              notifId++,
+            );
           }
 
           await prefs.setStringList(kPrefKnownBookingKeys, currentKeys);
@@ -322,7 +304,7 @@ void _onStartBackground(ServiceInstance service) async {
 
   await checkNewBookingsBg();
 
-  Timer.periodic(const Duration(seconds: 8), (_) async {
+  Timer.periodic(const Duration(seconds: 30), (_) async {
     await checkNewBookingsBg();
   });
 }
@@ -337,7 +319,7 @@ Future<void> _initBackgroundService() async {
       notificationChannelId: 'mrjone_bg_monitor',
       initialNotificationTitle: 'Barbearia Mr Jone • Gestão Ativa',
       initialNotificationContent:
-          'A monitorizar novos agendamentos mesmo fechado',
+          'A monitorizar agendamentos mesmo com o app fechado',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -375,7 +357,7 @@ class MrJoneGestaoApp extends StatelessWidget {
     );
   }
 }
-class GestaoHomePage extends StatefulWidget {
+ class GestaoHomePage extends StatefulWidget {
   const GestaoHomePage({super.key});
 
   @override
@@ -440,7 +422,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     _syncAll();
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 8),
+      const Duration(seconds: 25),
       (_) => _fetchBookings(silent: true),
     );
   }
@@ -617,27 +599,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _tabIndex = 0;
     });
   }
-      Future<void> _syncAll() async {
-    setState(() {
-      _loading = true;
-      _statusMsg = 'A sincronizar dados com o Firebase...';
-    });
-    await Future.wait([
-      _fetchBookings(silent: true),
-      _fetchCatalog(),
-      _fetchBarbers(),
-      _fetchClientsAndPlanMembers(),
-      _fetchRemoteSettings(),
-    ]);
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _statusMsg =
-          'Sincronizado • ${_bookings.length} marcação(ões) • ${_clients.length} cliente(s) • ${_planMembers.length} no plano';
-    });
-  }
-
-  String _normalizePhone(String raw) {
+      String _normalizePhone(String raw) {
     final digits = raw.replaceAll(RegExp(r'\D'), '');
     if (digits.length >= 10 && !digits.startsWith('55')) {
       return '55$digits';
@@ -765,118 +727,24 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     } catch (_) {}
   }
-      Map _normalizeBookingMap(String key, Map raw) {
-    final item = Map.from(raw);
-    item['firebaseKey'] = key;
-
-    final resolvedName = (item['clientName'] ??
-            item['name'] ??
-            item['cliente'] ??
-            item['customerName'] ??
-            '')
-        .toString()
-        .trim();
-    if (resolvedName.isNotEmpty) {
-      item['clientName'] = resolvedName;
-    }
-
-    final resolvedPhone = (item['clientPhone'] ??
-            item['phone'] ??
-            item['whatsapp'] ??
-            item['telefone'] ??
-            '')
-        .toString()
-        .trim();
-    if (resolvedPhone.isNotEmpty) {
-      item['clientPhone'] = resolvedPhone;
-    }
-
-    final resolvedDate = (item['dateLabel'] ??
-            item['date'] ??
-            item['data'] ??
-            '')
-        .toString()
-        .trim();
-    if (resolvedDate.isNotEmpty) {
-      item['dateLabel'] = resolvedDate;
-    }
-
-    final resolvedTime = (item['time'] ??
-            item['hour'] ??
-            item['horario'] ??
-            '')
-        .toString()
-        .trim();
-    if (resolvedTime.isNotEmpty) {
-      item['time'] = resolvedTime;
-    }
-
-    final resolvedBarber = (item['barberName'] ??
-            item['barber'] ??
-            item['profissional'] ??
-            'Mr. Jone')
-        .toString()
-        .trim();
-    item['barberName'] = resolvedBarber.isEmpty ? 'Mr. Jone' : resolvedBarber;
-
-    if (item['items'] == null ||
-        (item['items'] is List && (item['items'] as List).isEmpty)) {
-      final srvName = (item['serviceName'] ??
-              item['service'] ??
-              item['servicos'] ??
-              item['planName'] ??
-              '')
-          .toString()
-          .trim();
-      final rawPrice = item['price'] ??
-          item['total'] ??
-          item['totalPrice'] ??
-          item['valor'] ??
-          0;
-      final parsedPrice = double.tryParse(
-            rawPrice.toString().replaceAll('R\$', '').replaceAll(',', '.').trim(),
-          ) ??
-          0.0;
-      final parsedDur = int.tryParse('${item['duration'] ?? 30}') ?? 30;
-      if (srvName.isNotEmpty || parsedPrice > 0) {
-        item['items'] = [
-          {
-            'name': srvName.isEmpty ? 'Atendimento' : srvName,
-            'price': parsedPrice,
-            'duration': parsedDur,
-            'isPlan': item['isPlan'] == true,
-            'sessionsPerMonth': int.tryParse('${item['sessionsPerMonth'] ?? 4}') ?? 4,
-          }
-        ];
-      }
-    }
-
-    return item;
-  }
-
-  int _bookingSortEpoch(Map item) {
-    final rawCreated = item['createdAt'] ?? item['timestamp'] ?? item['created_at'];
-    if (rawCreated is num) {
-      final v = rawCreated.toInt();
-      return v > 1000000000000 ? v : v * 1000;
-    }
-    if (rawCreated != null) {
-      final s = rawCreated.toString().trim();
-      final asNum = int.tryParse(s);
-      if (asNum != null) {
-        return asNum > 1000000000000 ? asNum : asNum * 1000;
-      }
-      final parsed = DateTime.tryParse(s);
-      if (parsed != null) return parsed.millisecondsSinceEpoch;
-    }
-
-    final dt = _parseDateString((item['dateLabel'] ?? item['date'] ?? '').toString());
-    final mins = _timeToMinutes((item['time'] ?? '').toString()) ?? 0;
-    if (dt != null) {
-      return DateTime(dt.year, dt.month, dt.day, mins ~/ 60, mins % 60)
-          .millisecondsSinceEpoch;
-    }
-    return 0;
+      Future<void> _syncAll() async {
+    setState(() {
+      _loading = true;
+      _statusMsg = 'A sincronizar dados com o Firebase...';
+    });
+    await Future.wait([
+      _fetchBookings(silent: true),
+      _fetchCatalog(),
+      _fetchBarbers(),
+      _fetchClientsAndPlanMembers(),
+      _fetchRemoteSettings(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _statusMsg =
+          'Sincronizado • ${_bookings.length} marcação(ões) • ${_clients.length} cliente(s) • ${_planMembers.length} no plano';
+    });
   }
 
   Future<void> _fetchBookings({bool silent = false}) async {
@@ -887,7 +755,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     }
     try {
-      await _initNotifications();
       final prefs = await SharedPreferences.getInstance();
       final savedKeys = prefs.getStringList(kPrefKnownBookingKeys) ?? [];
       _knownKeys.addAll(savedKeys);
@@ -897,7 +764,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
       final res = await http.get(uri);
       if (res.statusCode == 200) {
-        final decoded = res.body == 'null' ? null : jsonDecode(res.body);
+        final decoded = jsonDecode(res.body);
         final List loaded = [];
         final List brandNew = [];
         final List<String> allKeys = [];
@@ -907,7 +774,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             if (val is Map) {
               final k = key.toString();
               allKeys.add(k);
-              final item = _normalizeBookingMap(k, val);
+              final item = Map.from(val);
+              item['firebaseKey'] = k;
               loaded.add(item);
 
               if (_firstLoadDone && !_knownKeys.contains(k)) {
@@ -921,21 +789,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         await prefs.setStringList(kPrefKnownBookingKeys, allKeys);
         _firstLoadDone = true;
 
-        for (final item in loaded) {
-          final m = item as Map;
-          await _upsertClientFromBooking(
-            name: (m['clientName'] ?? '').toString(),
-            phone: (m['clientPhone'] ?? '').toString(),
-            bookingDate: (m['dateLabel'] ?? '').toString(),
-            bookingTime: (m['time'] ?? '').toString(),
-            incrementCount: false,
-          );
-        }
-
-        int notifId = 100 + (DateTime.now().second % 80);
+        int notifId = 100;
         for (final novo in brandNew) {
           final client = (novo['clientName'] ?? 'Cliente').toString();
-          final phone = (novo['clientPhone'] ?? '').toString();
+          final phone = (novo['clientPhone'] ?? novo['phone'] ?? '').toString();
           final dateLbl = (novo['dateLabel'] ?? '').toString();
           final timeLbl = (novo['time'] ?? '').toString();
           final barber = (novo['barberName'] ?? 'Barbearia Mr Jone').toString();
@@ -949,14 +806,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           );
 
           await _showBookingNotification(
-            'Novo agendamento • $client',
+            'Nova marcação • $client',
             '$dateLbl às $timeLbl ($barber)',
             notifId++,
           );
         }
 
-        loaded.sort((a, b) => _bookingSortEpoch(b as Map)
-            .compareTo(_bookingSortEpoch(a as Map)));
+        loaded.sort((a, b) => (b['createdAt'] ?? '')
+            .toString()
+            .compareTo((a['createdAt'] ?? '').toString()));
 
         if (!mounted) return;
         setState(() {
@@ -964,7 +822,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           if (brandNew.isNotEmpty) {
             _newAlerts = [...brandNew, ..._newAlerts];
           }
-          _statusMsg = 'Online • ${loaded.length} agendamento(s)';
+          _statusMsg = 'Online • ${loaded.length} registo(s)';
         });
       } else {
         if (!mounted) return;
@@ -1109,6 +967,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return null;
   }
 
+  // Retorna true apenas se estiver marcado como ativo E dentro da data de validade
   bool _isPlanMemberValid(Map member) {
     if (member['active'] == false) return false;
     final expDt = _parseDateString((member['expiresAt'] ?? '').toString());
@@ -1119,49 +978,69 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return !expiry.isBefore(today);
   }
 
+  // - Plano válido: libera APENAS opções do plano (bloqueia avulsos)
+  // - Plano vencido/inativo: libera APENAS serviços avulsos (bloqueia plano)
+  // - Sem registro em plano: libera avulsos e planos
   List _allowedCatalogOptions({String? clientName, String? clientPhone}) {
     final member = _findPlanMember(
       clientName: clientName,
       clientPhone: clientPhone,
     );
 
-    if (member != null && _isPlanMemberValid(member)) {
-      final assignedPlanName =
-          (member['planName'] ?? '').toString().trim().toLowerCase();
-      final List planOnly = [];
+    if (member != null) {
+      if (_isPlanMemberValid(member)) {
+        final assignedPlanName =
+            (member['planName'] ?? '').toString().trim().toLowerCase();
+        final List planOnly = [];
 
-      for (final p in _plans) {
-        if (p is! Map) continue;
-        final pName = (p['name'] ?? '').toString();
-        if (assignedPlanName.isEmpty ||
-            pName.toLowerCase() == assignedPlanName ||
-            pName.toLowerCase().contains(assignedPlanName) ||
-            assignedPlanName.contains(pName.toLowerCase())) {
-          planOnly.add({
-            'name': pName,
-            'price': double.tryParse('${p['price'] ?? 0}') ?? 0.0,
-            'duration': int.tryParse('${p['duration'] ?? 40}') ?? 40,
+        for (final p in _plans) {
+          if (p is! Map) continue;
+          final pName = (p['name'] ?? '').toString();
+          if (assignedPlanName.isEmpty ||
+              pName.toLowerCase() == assignedPlanName ||
+              pName.toLowerCase().contains(assignedPlanName) ||
+              assignedPlanName.contains(pName.toLowerCase())) {
+            planOnly.add({
+              'name': pName,
+              'price': double.tryParse('${p['price'] ?? 0}') ?? 0.0,
+              'duration': int.tryParse('${p['duration'] ?? 40}') ?? 40,
+              'isPlan': true,
+              'sessionsPerMonth':
+                  int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4,
+              'mode': 'plan_only',
+            });
+          }
+        }
+
+        if (planOnly.isNotEmpty) return planOnly;
+
+        return [
+          {
+            'name': (member['planName'] ?? 'Plano Mensal').toString(),
+            'price': double.tryParse('${member['planPrice'] ?? 0}') ?? 0.0,
+            'duration': int.tryParse('${member['duration'] ?? 40}') ?? 40,
             'isPlan': true,
             'sessionsPerMonth':
-                int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4,
-            'planOnly': true,
+                int.tryParse('${member['sessionsPerMonth'] ?? 4}') ?? 4,
+            'mode': 'plan_only',
+          }
+        ];
+      } else {
+        // Plano vencido ou inativo -> permite apenas avulsos
+        final List avulsosOnly = [];
+        for (final s in _services) {
+          if (s is! Map) continue;
+          avulsosOnly.add({
+            'name': (s['name'] ?? '').toString(),
+            'price': double.tryParse('${s['price'] ?? 0}') ?? 0.0,
+            'duration': int.tryParse('${s['duration'] ?? 30}') ?? 30,
+            'isPlan': false,
+            'sessionsPerMonth': 1,
+            'mode': 'expired_avulso_only',
           });
         }
+        return avulsosOnly;
       }
-
-      if (planOnly.isNotEmpty) return planOnly;
-
-      return [
-        {
-          'name': (member['planName'] ?? 'Plano Mensal').toString(),
-          'price': double.tryParse('${member['planPrice'] ?? 0}') ?? 0.0,
-          'duration': int.tryParse('${member['duration'] ?? 40}') ?? 40,
-          'isPlan': true,
-          'sessionsPerMonth':
-              int.tryParse('${member['sessionsPerMonth'] ?? 4}') ?? 4,
-          'planOnly': true,
-        }
-      ];
     }
 
     final List all = [];
@@ -1172,7 +1051,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         'duration': int.tryParse('${s['duration'] ?? 30}') ?? 30,
         'isPlan': false,
         'sessionsPerMonth': 1,
-        'planOnly': false,
+        'mode': 'normal',
       });
     }
     for (final p in _plans) {
@@ -1182,7 +1061,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         'duration': int.tryParse('${p['duration'] ?? 40}') ?? 40,
         'isPlan': true,
         'sessionsPerMonth': int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4,
-        'planOnly': false,
+        'mode': 'normal',
       });
     }
     return all;
@@ -1400,7 +1279,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   controller: phoneCtrl,
                   keyboardType: TextInputType.phone,
                   decoration: const InputDecoration(
-                    labelText: 'Telefone / WhatsApp (chave de identificação)',
+                    labelText: 'Telefone / WhatsApp',
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -1441,7 +1320,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       child: TextField(
                         controller: expiryCtrl,
                         decoration: const InputDecoration(
-                          labelText: 'Data de Validade (dd/mm/aaaa)',
+                          labelText: 'Vencimento (dd/mm/aaaa)',
                         ),
                       ),
                     ),
@@ -1471,7 +1350,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text(
-                    'Plano ativo (vai direto e só para opções do plano)',
+                    'Plano ativo (quando vencer, passa a avulso)',
                     style: TextStyle(fontSize: 12),
                   ),
                   value: active,
@@ -1519,10 +1398,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       int? _timeToMinutes(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
-    final match = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(clean);
-    if (match == null) return null;
-    final h = int.tryParse(match.group(1)!);
-    final m = int.tryParse(match.group(2)!);
+    final parts = clean.split(':');
+    if (parts.length < 2) return null;
+    final h = int.tryParse(parts[0].trim());
+    final m = int.tryParse(parts[1].trim());
     if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) {
       return null;
     }
@@ -1745,11 +1624,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
     if (sum == 0) {
-      final rawFallback = b['price'] ?? b['total'] ?? b['totalPrice'] ?? b['valor'] ?? 0;
-      final fallbackPrice = double.tryParse(
-            rawFallback.toString().replaceAll('R\$', '').replaceAll(',', '.').trim(),
-          ) ??
-          0;
+      final fallbackPrice =
+          double.tryParse('${b['price'] ?? b['total'] ?? 0}') ?? 0;
       if (fallbackPrice > 0) sum = fallbackPrice;
     }
     return sum;
@@ -1839,9 +1715,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
     if (srvNames.isNotEmpty) return srvNames.join(' + ');
-    final fallback = (b['serviceName'] ?? b['service'] ?? b['servicos'] ?? '')
-        .toString()
-        .trim();
+    final fallback = (b['serviceName'] ?? b['service'] ?? '').toString().trim();
     return fallback.isEmpty ? 'Atendimento agendado' : fallback;
   }
 
@@ -2051,8 +1925,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             clientName: clientCtrl.text,
             clientPhone: phoneCtrl.text,
           );
+          final bool hasMemberRecord = member != null;
           final bool isValidPlanMember =
               member != null && _isPlanMemberValid(member);
+          final bool isExpiredPlanMember =
+              member != null && !_isPlanMemberValid(member);
+
           final List allowedOptions = _allowedCatalogOptions(
             clientName: clientCtrl.text,
             clientPhone: phoneCtrl.text,
@@ -2061,11 +1939,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           Map selectedItem = allowedOptions.isNotEmpty
               ? Map.from(allowedOptions.first as Map)
               : {
-                  'name': 'Plano Mensal',
-                  'price': 150.0,
+                  'name': 'Corte Degradê / Disfarçado / Navalhado',
+                  'price': 40.0,
                   'duration': 40,
-                  'isPlan': true,
-                  'sessionsPerMonth': 4,
+                  'isPlan': false,
+                  'sessionsPerMonth': 1,
                 };
 
           return AlertDialog(
@@ -2103,9 +1981,24 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         border: Border.all(color: const Color(0xFFD4AF37)),
                       ),
                       child: Text(
-                        'MEMBRO DO PLANO • Validade: ${member['expiresAt'] ?? 'Ativo'}\nApenas opções do plano permitidas.',
+                        'PLANO ATIVO (Validade: ${member['expiresAt'] ?? 'Ativo'})\nSó pode marcar na aba de PLANOS (avulsos bloqueados).',
                         style: const TextStyle(
                             fontSize: 11, color: Color(0xFFF3D97E)),
+                      ),
+                    ),
+                  ] else if (isExpiredPlanMember) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2B1313),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.redAccent),
+                      ),
+                      child: Text(
+                        'PLANO VENCIDO / INATIVO (Validade: ${member['expiresAt'] ?? '-'})\nPlano bloqueado: só pode marcar em SERVIÇOS AVULSOS.',
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.orangeAccent),
                       ),
                     ),
                   ],
@@ -2144,8 +2037,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       dropdownColor: const Color(0xFF1B1B20),
                       decoration: InputDecoration(
                         labelText: isValidPlanMember
-                            ? 'Opções do Plano (Exclusivo)'
-                            : 'Serviço ou Plano',
+                            ? 'Apenas Planos (Ativo)'
+                            : (isExpiredPlanMember
+                                ? 'Apenas Avulsos (Plano Vencido)'
+                                : 'Serviço Avulso ou Plano'),
                       ),
                       items: [
                         for (var i = 0; i < allowedOptions.length; i++)
@@ -2184,11 +2079,22 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   foregroundColor: Colors.black,
                 ),
                 onPressed: () async {
-                  if (isValidPlanMember && selectedItem['isPlan'] != true) {
+                  final bool itemIsPlan = selectedItem['isPlan'] == true;
+                  if (isValidPlanMember && !itemIsPlan) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'Este cliente é do plano: só é permitido marcar opções do plano.',
+                          'Cliente com plano ativo: só pode marcar na opção do plano.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  if (isExpiredPlanMember && itemIsPlan) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Plano vencido: só é permitido marcar em serviço avulso.',
                         ),
                       ),
                     );
@@ -2232,6 +2138,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       'attended': false,
                       'completedAt': null,
                       'isPlanMember': isValidPlanMember,
+                      'hadExpiredPlan': isExpiredPlanMember,
+                      'hasMemberRecord': hasMemberRecord,
                       'createdAt': now.toIso8601String(),
                       'items': [
                         {
@@ -2242,7 +2150,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           'duration': int.tryParse(
                                   '${selectedItem['duration'] ?? 30}') ??
                               30,
-                          'isPlan': selectedItem['isPlan'] == true,
+                          'isPlan': itemIsPlan,
                           'sessionsPerMonth': int.tryParse(
                                   '${selectedItem['sessionsPerMonth'] ?? 4}') ??
                               4,
@@ -2286,7 +2194,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         (b['clientPhone'] ?? b['phone'] ?? '').toString();
     final member =
         _findPlanMember(clientName: clientName, clientPhone: clientPhone);
-    final bool isPlanOnlyClient = member != null && _isPlanMemberValid(member);
+    final bool isValidPlanMember =
+        member != null && _isPlanMemberValid(member);
+    final bool isExpiredPlanMember =
+        member != null && !_isPlanMemberValid(member);
 
     final srvCtrl = TextEditingController(text: currentServiceName);
     final priceCtrl =
@@ -2306,16 +2217,27 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       clientPhone: clientPhone,
     );
 
-    if (isPlanOnlyClient && !currentIsPlan && allowedOptions.isNotEmpty) {
-      final firstPlanOpt = allowedOptions.first as Map;
-      srvCtrl.text = (firstPlanOpt['name'] ?? '').toString();
-      priceCtrl.text =
-          (double.tryParse('${firstPlanOpt['price'] ?? 0}') ?? 0)
-              .toStringAsFixed(2);
-      durCtrl.text = '${firstPlanOpt['duration'] ?? 40}';
-      currentIsPlan = true;
-      currentSessions =
-          int.tryParse('${firstPlanOpt['sessionsPerMonth'] ?? 4}') ?? 4;
+    if (allowedOptions.isNotEmpty) {
+      if (isValidPlanMember && !currentIsPlan) {
+        final firstPlanOpt = allowedOptions.first as Map;
+        srvCtrl.text = (firstPlanOpt['name'] ?? '').toString();
+        priceCtrl.text =
+            (double.tryParse('${firstPlanOpt['price'] ?? 0}') ?? 0)
+                .toStringAsFixed(2);
+        durCtrl.text = '${firstPlanOpt['duration'] ?? 40}';
+        currentIsPlan = true;
+        currentSessions =
+            int.tryParse('${firstPlanOpt['sessionsPerMonth'] ?? 4}') ?? 4;
+      } else if (isExpiredPlanMember && currentIsPlan) {
+        final firstAvulsoOpt = allowedOptions.first as Map;
+        srvCtrl.text = (firstAvulsoOpt['name'] ?? '').toString();
+        priceCtrl.text =
+            (double.tryParse('${firstAvulsoOpt['price'] ?? 0}') ?? 0)
+                .toStringAsFixed(2);
+        durCtrl.text = '${firstAvulsoOpt['duration'] ?? 30}';
+        currentIsPlan = false;
+        currentSessions = 1;
+      }
     }
 
     Future<void> pickCustomDate() async {
@@ -2378,7 +2300,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (isPlanOnlyClient)
+                  if (isValidPlanMember)
                     Container(
                       padding: const EdgeInsets.all(8),
                       margin: const EdgeInsets.only(bottom: 10),
@@ -2388,18 +2310,35 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         border: Border.all(color: const Color(0xFFD4AF37)),
                       ),
                       child: Text(
-                        'CLIENTE DE PLANO (Validade: ${member['expiresAt'] ?? 'Ativo'})\nApenas opções do plano estão disponíveis.',
+                        'PLANO ATIVO (Validade: ${member['expiresAt'] ?? 'Ativo'})\nApenas opções do plano estão disponíveis.',
                         style: const TextStyle(
                             fontSize: 11, color: Color(0xFFF3D97E)),
+                      ),
+                    )
+                  else if (isExpiredPlanMember)
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2B1313),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.redAccent),
+                      ),
+                      child: Text(
+                        'PLANO VENCIDO / INATIVO (Validade: ${member['expiresAt'] ?? '-'})\nApenas serviços avulsos estão disponíveis.',
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.orangeAccent),
                       ),
                     ),
                   DropdownButtonFormField<int>(
                     isExpanded: true,
                     dropdownColor: const Color(0xFF1B1B20),
                     decoration: InputDecoration(
-                      labelText: isPlanOnlyClient
-                          ? 'Opções do Plano (Exclusivo)'
-                          : 'Escolher da tabela de preços',
+                      labelText: isValidPlanMember
+                          ? 'Opções do Plano (Ativo)'
+                          : (isExpiredPlanMember
+                              ? 'Serviços Avulsos (Plano Vencido)'
+                              : 'Escolher da tabela de preços'),
                     ),
                     items: [
                       for (var i = 0; i < allowedOptions.length; i++)
@@ -2429,14 +2368,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: srvCtrl,
-                    readOnly: isPlanOnlyClient,
+                    readOnly: isValidPlanMember || isExpiredPlanMember,
                     decoration: const InputDecoration(
                       labelText: 'Serviço / Plano',
                     ),
                   ),
                   TextField(
                     controller: priceCtrl,
-                    readOnly: isPlanOnlyClient,
+                    readOnly: isValidPlanMember || isExpiredPlanMember,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(labelText: 'Valor (R\$)'),
@@ -2590,11 +2529,21 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   foregroundColor: Colors.black,
                 ),
                 onPressed: () async {
-                  if (isPlanOnlyClient && !currentIsPlan) {
+                  if (isValidPlanMember && !currentIsPlan) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'Membro do plano só pode marcar opções do plano.',
+                          'Cliente com plano ativo: só pode marcar na opção do plano.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  if (isExpiredPlanMember && currentIsPlan) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Plano vencido: só pode marcar em serviço avulso.',
                         ),
                       ),
                     );
@@ -2674,8 +2623,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Future<void> _saveCatalogItem({
+      Future<void> _saveCatalogItem({
     required bool isPlan,
     String? existingId,
     required String name,
@@ -3137,8 +3085,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         _totalComissoes(onlyCompleted: _onlyCompletedInAccounting);
     final double liquidoCasa = receita - totalComissao;
 
-    final List visibleBookings =
-        _bookings.where((b) => b is Map).toList();
+    final List visibleBookings = _bookings.where((b) {
+      if (b is! Map) return false;
+      if (!_onlyCompletedInAccounting) return true;
+      return _isCompletedStatus(b) || _isNotCompletedStatus(b) || true;
+    }).toList();
 
     return RefreshIndicator(
       onRefresh: _syncAll,
@@ -3303,17 +3254,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           const SizedBox(height: 6),
           if (_loading && _bookings.isEmpty)
             const Center(child: CircularProgressIndicator()),
-          if (!_loading && visibleBookings.isEmpty)
-            const Card(
-              color: Color(0xFF141417),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                  'Nenhum agendamento encontrado no Firebase. Puxe para baixo ou toque em atualizar.',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-              ),
-            ),
           ...visibleBookings.map((b) {
             final String key = (b['firebaseKey'] ?? '').toString();
             final String status = (b['status'] ?? 'confirmado').toString();
@@ -3331,7 +3271,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 (b['clientPhone'] ?? b['phone'] ?? '').toString();
             final member =
                 _findPlanMember(clientName: cName, clientPhone: cPhone);
-            final bool inPlan = member != null && _isPlanMemberValid(member);
+            final bool planValid = member != null && _isPlanMemberValid(member);
+            final bool planExpired =
+                member != null && !_isPlanMemberValid(member);
+
+            final badge = planValid
+                ? ' [PLANO ATIVO]'
+                : (planExpired ? ' [PLANO VENCIDO]' : '');
 
             return Card(
               color: const Color(0xFF141417),
@@ -3342,7 +3288,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$cName${inPlan ? ' [PLANO]' : ''} • ${b['dateLabel'] ?? ''} ${b['time'] ?? ''}',
+                      '$cName$badge • ${b['dateLabel'] ?? ''} ${b['time'] ?? ''}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Color(0xFFF3D97E),
@@ -3350,12 +3296,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Tel: ${cPhone.isEmpty ? '-' : cPhone} • Barbeiro: ${b['barberName'] ?? 'Mr. Jone'}',
-                      style:
-                          const TextStyle(fontSize: 12, color: Colors.white70),
-                    ),
-                    Text(
-                      'Receita: R\$ ${val.toStringAsFixed(2)} • Comissão: R\$ ${comm.toStringAsFixed(2)} • $status${countsInTotals ? '' : ' (não somado)'}',
+                      'Barbeiro: ${b['barberName'] ?? 'Mr. Jone'} • Receita: R\$ ${val.toStringAsFixed(2)} • Comissão: R\$ ${comm.toStringAsFixed(2)} • $status${countsInTotals ? '' : ' (não somado)'}',
                       style: const TextStyle(fontSize: 12),
                     ),
                     Text(
@@ -3462,7 +3403,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           ),
           const SizedBox(height: 14),
           const Text(
-            'SERVIÇOS, PREÇOS E DURAÇÃO',
+            'SERVIÇOS AVULSOS, PREÇOS E DURAÇÃO',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Color(0xFFF3D97E),
@@ -3710,7 +3651,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
                 title: Text(
-                  '$cName • ${valid ? 'ATIVO' : 'VENCIDO / INATIVO'}',
+                  '$cName • ${valid ? 'ATIVO (Só Plano)' : 'VENCIDO / INATIVO (Só Avulso)'}',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: valid ? Colors.greenAccent : Colors.orangeAccent,
@@ -3765,14 +3706,21 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             final int totalB = int.tryParse('${c['totalBookings'] ?? 0}') ?? 0;
             final member =
                 _findPlanMember(clientName: name, clientPhone: phone);
-            final bool isMember = member != null && _isPlanMemberValid(member);
+            final bool isValidPlan =
+                member != null && _isPlanMemberValid(member);
+            final bool isExpiredPlan =
+                member != null && !_isPlanMemberValid(member);
+
+            final tag = isValidPlan
+                ? ' • [PLANO ATIVO]'
+                : (isExpiredPlan ? ' • [PLANO VENCIDO]' : '');
 
             return Card(
               color: const Color(0xFF141417),
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
                 title: Text(
-                  '$name${isMember ? ' • [PLANO]' : ''}',
+                  '$name$tag',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Text(
@@ -3783,7 +3731,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      tooltip: 'Colocar no plano',
+                      tooltip: 'Colocar / Editar no plano',
                       icon: const Icon(Icons.card_membership,
                           color: Colors.greenAccent),
                       onPressed: () => _openPlanMemberDialog(
@@ -3809,7 +3757,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildBarbersTab() {
+
+  Widget _buildBarbersTab() {
     return RefreshIndicator(
       onRefresh: _fetchBarbers,
       child: ListView(
@@ -3942,18 +3891,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            IconButton(
-                              tooltip: 'Relatório detalhado',
-                              icon: const Icon(Icons.assessment,
-                                  color: Colors.greenAccent),
-                              onPressed: () =>
-                                  _openBarberReportDialog(name, commPct),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.edit,
-                                  color: Color(0xFFF3D97E)),
-                              onPressed: () => _openBarberDialog(barber: b),
-                            ),
                             IconButton(
                               icon: const Icon(Icons.delete,
                                   color: Colors.redAccent),
