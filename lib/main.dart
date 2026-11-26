@@ -374,7 +374,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   bool _onlyCompletedInAccounting = true;
   String _barberReportPeriod = 'mensal';
 
-  // Data e barbeiro selecionados para a grade visual de horários (estilo agenda / Cashbarber)
   DateTime _gridSelectedDate = DateTime.now();
   String _gridSelectedBarberFilter = 'TODOS';
 
@@ -513,8 +512,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
     } catch (_) {}
   }
-
-  Future<void> _fetchRemoteSettings() async {
+     Future<void> _fetchRemoteSettings() async {
     try {
       final expRes = await http.get(Uri.parse('$kFirebaseDbUrl/expediente.json'));
       if (expRes.statusCode == 200 && expRes.body != 'null') {
@@ -842,9 +840,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         setState(() => _loading = false);
       }
     }
-  }
-
-  Future<void> _fetchCatalog() async {
+   }
+      Future<void> _fetchCatalog() async {
     try {
       final srvRes = await http.get(Uri.parse('$kFirebaseDbUrl/services.json'));
       final plnRes = await http.get(Uri.parse('$kFirebaseDbUrl/plans.json'));
@@ -930,7 +927,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-     DateTime? _parseDateString(String raw) {
+      DateTime? _parseDateString(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
     final slash = clean.split('/');
@@ -1074,8 +1071,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     return all;
   }
-
-  Future<void> _saveManualClient({
+      Future<void> _saveManualClient({
     String? existingId,
     required String name,
     required String phone,
@@ -1170,7 +1166,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     await http.delete(Uri.parse('$kFirebaseDbUrl/plan_members/$id.json'));
     await _fetchClientsAndPlanMembers();
   }
-     Future<void> _openClientDialog({Map? client}) async {
+      Future<void> _openClientDialog({Map? client}) async {
     final nameCtrl =
         TextEditingController(text: (client?['name'] ?? '').toString());
     final phoneCtrl =
@@ -1452,7 +1448,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  // Encontra o agendamento que ocupa ou começa no minuto `slotMin` na data e barbeiro escolhidos
   Map? _findBookingAtSlot(
     DateTime day,
     int slotMin, {
@@ -1493,7 +1488,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return null;
   }
 
-  // Verifica se há pausa / bloqueio nesse slot
   Map? _findPauseAtSlot(DateTime day, int slotMin) {
     final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
     final int slotEnd = slotMin + step;
@@ -2069,7 +2063,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         border: Border.all(color: const Color(0xFFD4AF37)),
                       ),
                       child: Text(
-                        'PLANO ATIVO (Validade: ${member['expiresAt'] ?? 'Ativo'})\nSó pode marcar na aba de PLANOS (avulsos bloqueados).',
+                        'PLANO ATIVO (Validade: ${member['expiresAt'] ?? 'Ativo'})\nSó pode marcar na opção do plano (avulsos bloqueados).',
                         style: const TextStyle(
                             fontSize: 11, color: Color(0xFFF3D97E)),
                       ),
@@ -2277,8 +2271,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         },
       ),
     );
-      }
-         Future<void> _openEditBookingDialog(Map b) async {
+   }
+      Future<void> _openEditBookingDialog(Map b) async {
     final String firebaseKey = (b['firebaseKey'] ?? '').toString();
     if (firebaseKey.isEmpty) return;
 
@@ -2730,8 +2724,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         },
       ),
     );
-    }
-        Future<void> _saveCatalogItem({
+ }
+    Future<void> _saveCatalogItem({
     required bool isPlan,
     String? existingId,
     required String name,
@@ -3191,6 +3185,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final Map dayExp = _expediente[expKey] ?? {};
     final bool isOpen = dayExp['ativo'] == true;
     final String dateBR = _formatDateBR(_gridSelectedDate);
+
     final List turnos = [];
     final t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
     final t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
@@ -3227,7 +3222,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       color: const Color(0xFF141417),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFF2D2716), width: 1),
+        side: const BorderSide(color: Colors.white12, width: 1),
       ),
       margin: const EdgeInsets.only(bottom: 14),
       child: Padding(
@@ -3242,7 +3237,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   'GRADE DE HORÁRIOS (EXPEDIENTE)',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFFF3D97E),
+                    color: Colors.white,
                     fontSize: 13,
                   ),
                 ),
@@ -3259,11 +3254,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     }
                   },
                   icon: const Icon(Icons.calendar_month,
-                      size: 16, color: Color(0xFFD4AF37)),
+                      size: 16, color: Colors.white70),
                   label: Text(
                     dateBR,
                     style: const TextStyle(
-                        color: Color(0xFFF3D97E), fontWeight: FontWeight.bold),
+                        color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -3283,7 +3278,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     padding: const EdgeInsets.only(right: 6),
                     child: ChoiceChip(
                       selected: selected,
-                      selectedColor: const Color(0xFFD4AF37),
+                      selectedColor: Colors.white,
                       backgroundColor: const Color(0xFF1B1B20),
                       label: Text(
                         '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} • ${nomeDia.length >= 3 ? nomeDia.substring(0, 3) : nomeDia}${aberto ? '' : ' (Fech.)'}',
@@ -3311,7 +3306,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       padding: const EdgeInsets.only(right: 6),
                       child: ChoiceChip(
                         selected: sel,
-                        selectedColor: const Color(0xFFD4AF37),
+                        selectedColor: Colors.white,
                         backgroundColor: const Color(0xFF1B1B20),
                         label: Text(
                           bf == 'TODOS' ? 'Todos os Barbeiros' : bf,
@@ -3363,7 +3358,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     decoration: BoxDecoration(
                       color: const Color(0xFF231818),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.orangeAccent.withOpacity(0.4)),
+                      border: Border.all(
+                          color: Colors.orangeAccent.withOpacity(0.4)),
                     ),
                     child: Row(
                       children: [
@@ -3389,6 +3385,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
                 if (bookingHit != null) {
                   final Map bk = bookingHit['booking'] as Map;
+                  final String bKey = (bk['firebaseKey'] ?? '').toString();
                   final String cName = (bk['clientName'] ?? 'Cliente').toString();
                   final String bName =
                       (bk['barberName'] ?? 'Mr. Jone').toString();
@@ -3401,63 +3398,89 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     margin: const EdgeInsets.only(bottom: 6),
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF231C08),
+                      color: const Color(0xFF1C1C21),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFD4AF37)),
+                      border: Border.all(color: Colors.white24),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFD4AF37),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '$bStart\naté\n$bEnd',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
-                              height: 1.15,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '$cName • $bStart às $bEnd',
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2A2A32),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '$bStart\naté\n$bEnd',
+                                textAlign: TextAlign.center,
                                 style: const TextStyle(
+                                  color: Colors.white,
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFFF3D97E),
-                                  fontSize: 13,
+                                  fontSize: 11,
+                                  height: 1.15,
                                 ),
                               ),
-                              Text(
-                                '$srvSum • $bName ($st)',
-                                style: const TextStyle(
-                                    fontSize: 11, color: Colors.white70),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '$cName • $bStart às $bEnd',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  Text(
+                                    '$srvSum • $bName ($st)',
+                                    style: const TextStyle(
+                                        fontSize: 11, color: Colors.white70),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            ),
+                            IconButton(
+                              tooltip: 'Reagendar / Editar',
+                              icon: const Icon(Icons.edit_calendar,
+                                  color: Colors.white70, size: 20),
+                              onPressed: () => _openEditBookingDialog(bk),
+                            ),
+                          ],
                         ),
-                        IconButton(
-                          tooltip: 'Reagendar / Editar',
-                          icon: const Icon(Icons.edit_calendar,
-                              color: Color(0xFFF3D97E), size: 20),
-                          onPressed: () => _openEditBookingDialog(bk),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => _updateStatus(bKey, 'cancelado'),
+                              child: const Text(
+                                'Cancelar',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.orangeAccent),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => _deleteBooking(bKey),
+                              child: const Text(
+                                'Excluir',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.redAccent),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   );
                 }
 
-                // Slot livre na grade: toca para encaixar atendimento nesse horário
                 return InkWell(
                   onTap: () => _openManualEntryDialog(
                     presetDateStr: dateBR,
@@ -3583,55 +3606,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFFF3D97E),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Card(
-                  color: const Color(0xFF141417),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('COMISSÕES', style: TextStyle(fontSize: 11)),
-                        const SizedBox(height: 4),
-                        Text(
-                          'R\$ ${totalComissao.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.greenAccent,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Card(
-                  color: const Color(0xFF141417),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('LÍQUIDO CASA',
-                            style: TextStyle(fontSize: 11)),
-                        const SizedBox(height: 4),
-                        Text(
-                          'R\$ ${liquidoCasa.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.greenAccent,
                           ),
                         ),
                       ],
@@ -3818,7 +3792,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildCatalogTab() {
+
+  Widget _buildCatalogTab() {
     return RefreshIndicator(
       onRefresh: _fetchCatalog,
       child: ListView(
@@ -3929,8 +3904,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Widget _buildExpedienteTab() {
+      Widget _buildExpedienteTab() {
     final ordem = ['1', '2', '3', '4', '5', '6', '0'];
     return ListView(
       padding: const EdgeInsets.all(14),
@@ -3964,39 +3938,182 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         ),
         const SizedBox(height: 8),
         ...ordem.map((d) {
-          final info = _expediente[d] ?? {};
+          final info = Map<String, dynamic>.from(_expediente[d] ?? {});
           final bool ativo = info['ativo'] == true;
           final bool t2Ativo = info['t2Ativo'] == true;
+          final t1IniCtrl =
+              TextEditingController(text: (info['t1Inicio'] ?? '09:00').toString());
+          final t1FimCtrl =
+              TextEditingController(text: (info['t1Fim'] ?? '12:00').toString());
+          final t2IniCtrl =
+              TextEditingController(text: (info['t2Inicio'] ?? '14:00').toString());
+          final t2FimCtrl =
+              TextEditingController(text: (info['t2Fim'] ?? '19:30').toString());
+
           return Card(
             color: const Color(0xFF141417),
-            margin: const EdgeInsets.only(bottom: 8),
+            margin: const EdgeInsets.only(bottom: 10),
             child: Padding(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        (info['name'] ?? d).toString(),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFFF3D97E),
-                        ),
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: ativo,
+                            onChanged: (val) async {
+                              setState(() {
+                                _expediente[d] = {
+                                  ...info,
+                                  'ativo': val ?? false,
+                                };
+                              });
+                              await _saveExpedienteAndSync();
+                            },
+                          ),
+                          Text(
+                            (info['name'] ?? d).toString(),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
                       ),
-                      Switch(
-                        value: ativo,
-                        onChanged: (val) async {
-                          setState(() => _expediente[d]?['ativo'] = val);
+                      TextButton(
+                        onPressed: () async {
+                          setState(() {
+                            _expediente[d] = {
+                              ...info,
+                              't2Ativo': !t2Ativo,
+                            };
+                          });
                           await _saveExpedienteAndSync();
                         },
+                        child: Text(
+                          t2Ativo ? 'Remover Turno 2' : '+ Turno 2',
+                          style: const TextStyle(fontSize: 12),
+                        ),
                       ),
                     ],
                   ),
-                  Text(
-                    'Turno 1: ${info['t1Inicio'] ?? '09:00'} às ${info['t1Fim'] ?? '12:00'}${t2Ativo ? ' • Turno 2: ${info['t2Inicio'] ?? '14:00'} às ${info['t2Fim'] ?? '19:30'}' : ' • Sem 2º turno'}',
-                    style: const TextStyle(fontSize: 12, color: Colors.white70),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: t1IniCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Início 1',
+                            isDense: true,
+                          ),
+                          onSubmitted: (v) async {
+                            setState(() {
+                              _expediente[d] = {
+                                ...info,
+                                't1Inicio': v.trim(),
+                              };
+                            });
+                            await _saveExpedienteAndSync();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: t1FimCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Fim 1',
+                            isDense: true,
+                          ),
+                          onSubmitted: (v) async {
+                            setState(() {
+                              _expediente[d] = {
+                                ...info,
+                                't1Fim': v.trim(),
+                              };
+                            });
+                            await _saveExpedienteAndSync();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (t2Ativo) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: t2IniCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Início 2',
+                              isDense: true,
+                            ),
+                            onSubmitted: (v) async {
+                              setState(() {
+                                _expediente[d] = {
+                                  ...info,
+                                  't2Inicio': v.trim(),
+                                };
+                              });
+                              await _saveExpedienteAndSync();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: t2FimCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Fim 2',
+                              isDense: true,
+                            ),
+                            onSubmitted: (v) async {
+                              setState(() {
+                                _expediente[d] = {
+                                  ...info,
+                                  't2Fim': v.trim(),
+                                };
+                              });
+                              await _saveExpedienteAndSync();
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        setState(() {
+                          _expediente[d] = {
+                            ...info,
+                            't1Inicio': t1IniCtrl.text.trim(),
+                            't1Fim': t1FimCtrl.text.trim(),
+                            't2Inicio': t2IniCtrl.text.trim(),
+                            't2Fim': t2FimCtrl.text.trim(),
+                          };
+                        });
+                        await _saveExpedienteAndSync();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                  'Horário de ${info['name'] ?? d} salvo e sincronizado com o site.'),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.save, size: 16),
+                      label: const Text('Salvar dia'),
+                    ),
                   ),
                 ],
               ),
@@ -4005,10 +4122,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         }),
         const SizedBox(height: 10),
         ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFD4AF37),
-            foregroundColor: Colors.black,
-          ),
           onPressed: _openAddPauseDialog,
           icon: const Icon(Icons.pause_circle),
           label: const Text('Adicionar Pausa / Bloqueio'),
@@ -4036,7 +4149,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-      Widget _buildClientsAndPlansTab() {
+
+  Widget _buildClientsAndPlansTab() {
     return RefreshIndicator(
       onRefresh: _fetchClientsAndPlanMembers,
       child: ListView(
@@ -4381,7 +4495,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildSettingsTab() {
+
+  Widget _buildSettingsTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -4590,3 +4705,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 }
+      
+    
+    
