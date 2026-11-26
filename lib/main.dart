@@ -2491,7 +2491,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final String dateBR = _formatDateBR(_gridSelectedDate);
     final String weekdayName = _weekdayFullName(_gridSelectedDate);
 
-    final List> turnos = [];
+    final List turnos = [];
     final t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
     final t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
     if (t1s != null && t1e != null && t1e > t1s) {
