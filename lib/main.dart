@@ -8,9 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-// ============================================================================
-// CONFIGURAÇÕES GLOBAIS E CHAVES DE SINCRONIZAÇÃO (APP <-> SITE FIREBASE)
-// ============================================================================
+typedef JsonMap = Map<String, dynamic>;
+typedef IntMap = Map<String, int>;
 
 const String kFirebaseDbUrl =
     'https://barbeariamrjone-f3e8a-default-rtdb.firebaseio.com';
@@ -24,8 +23,7 @@ const String kPrefExpediente = 'mrjone_expediente_v1';
 const String kPrefPauses = 'mrjone_pauses_v1';
 const String kPrefSlotStep = 'mrjone_slot_step_v1';
 
-/// Expediente padrão idêntico à tela de configuração (Print 2)
-final Map<String, Map<String, dynamic>> kDefaultExpediente = {
+final Map<String, JsonMap> kDefaultExpediente = {
   '1': {
     'name': 'Segunda',
     'ativo': true,
@@ -91,7 +89,7 @@ final Map<String, Map<String, dynamic>> kDefaultExpediente = {
   },
 };
 
-final List> kDefaultServices = [
+final List<JsonMap> kDefaultServices = [
   {
     'id': 'def_srv_1',
     'name': 'Cabelo e Barba (Combo Completo)',
@@ -174,7 +172,7 @@ final List> kDefaultServices = [
   },
 ];
 
-final List> kDefaultPlans = [
+final List<JsonMap> kDefaultPlans = [
   {
     'id': 'def_pln_1',
     'name': 'Plano Mensal: Cabelo e Barba (Toda Semana)',
@@ -185,7 +183,7 @@ final List> kDefaultPlans = [
     'sessionsPerMonth': 4,
     'active': true,
   },
-  {
+      {
     'id': 'def_pln_2',
     'name': 'Plano Mensal: Só Cabelo (Toda Semana)',
     'category': 'Planos Mensais',
@@ -207,7 +205,7 @@ final List> kDefaultPlans = [
   },
 ];
 
-final List> kDefaultBarbers = [
+final List<JsonMap> kDefaultBarbers = [
   {
     'id': 'def_brb_jhonny',
     'name': 'Jhonny',
@@ -226,10 +224,6 @@ final List> kDefaultBarbers = [
 
 final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
-
-// ============================================================================
-// FUNÇÕES UTILITÁRIAS DE NORMALIZAÇÃO E ANTI-DUPLICAÇÃO DEFINITIVA
-// ============================================================================
 
 String _normalizePhoneShared(String raw) {
   final digits = raw.replaceAll(RegExp(r'\D'), '');
@@ -289,8 +283,6 @@ String _normalizeDateShared(String raw) {
   return clean.toLowerCase();
 }
 
-/// Gera uma assinatura determinística por (Data + Horário + Barbeiro + Cliente/Telefone)
-/// impedindo que o mesmo cliente apareça duplicado no mesmo horário vindo do site.
 String _bookingDedupeKey(Map b, String firebaseKey) {
   final client = _normalizeNameShared((b['clientName'] ?? '').toString());
   final phone = _normalizePhoneShared(
@@ -301,7 +293,9 @@ String _bookingDedupeKey(Map b, String firebaseKey) {
   final time = _normalizeTimeShared((b['time'] ?? '').toString());
   final barber = _normalizeNameShared((b['barberName'] ?? '').toString());
 
-  if (date.isNotEmpty && time.isNotEmpty && (client.isNotEmpty || phone.isNotEmpty)) {
+  if (date.isNotEmpty &&
+      time.isNotEmpty &&
+      (client.isNotEmpty || phone.isNotEmpty)) {
     final identityPart = phone.isNotEmpty ? phone : client;
     return 'slot:$date|$time|$barber|$identityPart';
   }
@@ -325,15 +319,13 @@ int _bookingStatusPriority(Map b) {
   return 0;
 }
 
-/// Consolida registros duplicados do Firebase em um único objeto limpo e guarda
-/// os IDs redundantes em `_mergedFirebaseKeys` para limpeza automática no banco.
-List> _deduplicateBookingsMap(Map decoded) {
-  final Map<String, Map<String, dynamic>> byDedupe = {};
+List<JsonMap> _deduplicateBookingsMap(Map decoded) {
+  final Map<String, JsonMap> byDedupe = {};
 
   decoded.forEach((key, val) {
     if (val is! Map) return;
     final k = key.toString();
-    final item = Map<String, dynamic>.from(val);
+    final item = JsonMap.from(val);
     item['firebaseKey'] = k;
 
     final dKey = _bookingDedupeKey(item, k);
@@ -371,18 +363,17 @@ List> _deduplicateBookingsMap(Map decoded) {
 
   final result = byDedupe.values.toList();
   result.sort((a, b) {
-    final da = _normalizeDateShared((a['dateLabel'] ?? a['date'] ?? '').toString());
-    final db = _normalizeDateShared((b['dateLabel'] ?? b['date'] ?? '').toString());
+    final da =
+        _normalizeDateShared((a['dateLabel'] ?? a['date'] ?? '').toString());
+    final db =
+        _normalizeDateShared((b['dateLabel'] ?? b['date'] ?? '').toString());
     if (da != db) return db.compareTo(da);
-    final ta = _normalizeTimeShared((a['time'] ?? '').toString());
+          final ta = _normalizeTimeShared((a['time'] ?? '').toString());
     final tb = _normalizeTimeShared((b['time'] ?? '').toString());
     return ta.compareTo(tb);
   });
   return result;
 }
-// ============================================================================
-// NOTIFICAÇÕES LOCAIS & LEMBRETE AUTOMÁTICO DE VENCIMENTO DE PLANOS
-// ============================================================================
 
 Future<void> _initNotifications() async {
   const AndroidInitializationSettings androidSettings =
@@ -475,6 +466,7 @@ String _formatDateBRShared(DateTime dt) {
   final mm = dt.month.toString().padLeft(2, '0');
   return '$dd/$mm/${dt.year}';
 }
+
 Future<void> _upsertClientRemote({
   required String name,
   required String phone,
@@ -514,7 +506,7 @@ Future<void> _upsertClientRemote({
     final int prevBookings =
         int.tryParse('${existingData['totalBookings'] ?? 0}') ?? 0;
 
-    final Map<String, dynamic> payload = {
+    final JsonMap payload = {
       'name': cleanName.isNotEmpty
           ? cleanName
           : (existingData['name'] ?? 'Cliente').toString(),
@@ -549,8 +541,6 @@ Future<void> _upsertClientRemote({
   } catch (_) {}
 }
 
-/// Atualiza o status de cada membro do plano no Firebase para que o SITE
-/// saiba em tempo real quem está ativo (só vê o plano) e quem está vencido (vê avulso).
 Future<void> _syncPlanRulesToSiteRemote() async {
   try {
     final memRes =
@@ -562,13 +552,13 @@ Future<void> _syncPlanRulesToSiteRemote() async {
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final Map<String, dynamic> siteIndexByPhone = {};
-    final Map<String, dynamic> siteIndexByName = {};
+    final JsonMap siteIndexByPhone = {};
+          final JsonMap siteIndexByName = {};
 
     for (final entry in decoded.entries) {
       if (entry.value is! Map) continue;
       final key = entry.key.toString();
-      final m = Map<String, dynamic>.from(entry.value as Map);
+      final m = JsonMap.from(entry.value as Map);
       final expDt = _parseDateShared((m['expiresAt'] ?? '').toString());
       final bool isExpired = expDt != null && expDt.isBefore(today);
       final bool isActive = (m['active'] != false) && !isExpired;
@@ -617,7 +607,8 @@ Future<void> _syncPlanRulesToSiteRemote() async {
     );
   } catch (_) {}
 }
- bool _bgChecking = false;
+
+bool _bgChecking = false;
 
 Future<void> _checkPlanExpiryRemindersBg(SharedPreferences prefs) async {
   try {
@@ -639,7 +630,7 @@ Future<void> _checkPlanExpiryRemindersBg(SharedPreferences prefs) async {
     for (final entry in decoded.entries) {
       if (entry.value is! Map) continue;
       final key = entry.key.toString();
-      final m = Map<String, dynamic>.from(entry.value as Map);
+      final m = JsonMap.from(entry.value as Map);
       if (m['active'] == false) continue;
 
       final expDt = _parseDateShared((m['expiresAt'] ?? '').toString());
@@ -647,7 +638,6 @@ Future<void> _checkPlanExpiryRemindersBg(SharedPreferences prefs) async {
       final expiry = DateTime(expDt.year, expDt.month, expDt.day);
       final int daysLeft = expiry.difference(today).inDays;
 
-      // Dispara lembrete automático quando faltar 3 dias, 1 dia ou vencer hoje
       if (daysLeft == 3 || daysLeft == 1 || daysLeft == 0) {
         final dedupeReminderKey = '$key|$todayStr|d$daysLeft';
         if (sentSet.contains(dedupeReminderKey)) continue;
@@ -666,7 +656,6 @@ Future<void> _checkPlanExpiryRemindersBg(SharedPreferences prefs) async {
             ? 'https://api.whatsapp.com/send?phone=$phone&text=$encodedMsg'
             : 'https://api.whatsapp.com/send?text=$encodedMsg';
 
-        // Grava fila automática no Firebase para disparo integrado / registro
         await http.post(
           Uri.parse('$kFirebaseDbUrl/auto_reminders_queue.json'),
           headers: {'Content-Type': 'application/json'},
@@ -731,7 +720,7 @@ void _onStartBackground(ServiceInstance service) async {
         if (decoded is Map) {
           final deduped = _deduplicateBookingsMap(decoded);
           final List<String> currentSignatures = [];
-          final List> brandNew = [];
+          final List<JsonMap> brandNew = [];
 
           for (final item in deduped) {
             final fKey = (item['firebaseKey'] ?? '').toString();
@@ -749,7 +738,7 @@ void _onStartBackground(ServiceInstance service) async {
           int notifId = 500;
           for (final novo in brandNew) {
             final client = (novo['clientName'] ?? 'Cliente').toString();
-            final phone =
+                         final phone =
                 (novo['clientPhone'] ?? novo['phone'] ?? '').toString();
             final dateLbl =
                 (novo['dateLabel'] ?? novo['date'] ?? '').toString();
@@ -821,7 +810,8 @@ void main() async {
   await _initBackgroundService();
   runApp(const MrJoneGestaoApp());
 }
- class MrJoneGestaoApp extends StatelessWidget {
+
+class MrJoneGestaoApp extends StatelessWidget {
   const MrJoneGestaoApp({super.key});
 
   @override
@@ -871,15 +861,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   final TextEditingController _newPassController = TextEditingController();
   final Map<String, TextEditingController> _expControllers = {};
 
-  Map<String, Map<String, dynamic>> _expediente = {};
-  List> _pauses = [];
-  List> _bookings = [];
-  List> _newAlerts = [];
-  List> _services = [];
-  List> _plans = [];
-  List> _barbers = [];
-  List> _clients = [];
-  List> _planMembers = [];
+  Map<String, JsonMap> _expediente = {};
+  List<JsonMap> _pauses = [];
+  List<JsonMap> _bookings = [];
+  List<JsonMap> _newAlerts = [];
+  List<JsonMap> _services = [];
+  List<JsonMap> _plans = [];
+  List<JsonMap> _barbers = [];
+  List<JsonMap> _clients = [];
+  List<JsonMap> _planMembers = [];
 
   final Set<String> _knownSignatures = {};
   bool _firstLoadDone = false;
@@ -888,20 +878,18 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   @override
   void initState() {
     super.initState();
-    _services =
-        kDefaultServices.map((e) => Map<String, dynamic>.from(e)).toList();
-    _plans = kDefaultPlans.map((e) => Map<String, dynamic>.from(e)).toList();
-    _barbers =
-        kDefaultBarbers.map((e) => Map<String, dynamic>.from(e)).toList();
+    _services = kDefaultServices.map((e) => JsonMap.from(e)).toList();
+    _plans = kDefaultPlans.map((e) => JsonMap.from(e)).toList();
+    _barbers = kDefaultBarbers.map((e) => JsonMap.from(e)).toList();
     _expediente = _cloneDefaultExpediente();
     _rebuildExpedienteControllers();
     _loadSavedSessionAndPass();
   }
 
-  Map<String, Map<String, dynamic>> _cloneDefaultExpediente() {
-    final Map<String, Map<String, dynamic>> copy = {};
+  Map<String, JsonMap> _cloneDefaultExpediente() {
+    final Map<String, JsonMap> copy = {};
     kDefaultExpediente.forEach((k, v) {
-      copy[k] = Map<String, dynamic>.from(v);
+      copy[k] = JsonMap.from(v);
     });
     return copy;
   }
@@ -935,7 +923,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     super.dispose();
   }
-
+    
   void _startActiveSession() {
     _syncAll();
     _pollTimer?.cancel();
@@ -944,7 +932,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       (_) => _fetchBookings(silent: true),
     );
   }
-      Future<void> _loadSavedSessionAndPass() async {
+
+  Future<void> _loadSavedSessionAndPass() async {
     final prefs = await SharedPreferences.getInstance();
     final savedPass = prefs.getString(kPrefAdminPass);
     final wasLoggedIn = prefs.getBool(kPrefLoggedIn) ?? false;
@@ -952,7 +941,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final savedExpRaw = prefs.getString(kPrefExpediente);
     final savedPausesRaw = prefs.getString(kPrefPauses);
 
-    Map<String, Map<String, dynamic>> loadedExp = _cloneDefaultExpediente();
+    Map<String, JsonMap> loadedExp = _cloneDefaultExpediente();
     if (savedExpRaw != null && savedExpRaw.isNotEmpty) {
       try {
         final decoded = jsonDecode(savedExpRaw);
@@ -961,7 +950,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             if (v is Map && loadedExp.containsKey(k.toString())) {
               loadedExp[k.toString()] = {
                 ...loadedExp[k.toString()]!,
-                ...Map<String, dynamic>.from(v),
+                ...JsonMap.from(v),
               };
             }
           });
@@ -969,15 +958,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       } catch (_) {}
     }
 
-    List> loadedPauses = [];
+    List<JsonMap> loadedPauses = [];
     if (savedPausesRaw != null && savedPausesRaw.isNotEmpty) {
       try {
         final decoded = jsonDecode(savedPausesRaw);
         if (decoded is List) {
-          loadedPauses = decoded
-              .whereType()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
+          loadedPauses =
+              decoded.whereType().map((e) => JsonMap.from(e)).toList();
         }
       } catch (_) {}
     }
@@ -1000,8 +987,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
   }
 
-  /// Publica todas as configurações do App no nó `/site_config` e nós individuais
-  /// do Firebase para que o site reflita imediatamente cada alteração feita aqui.
   Future<void> _publishAllConfigToSite() async {
     try {
       await Future.wait([
@@ -1064,7 +1049,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             if (v is Map && merged.containsKey(k.toString())) {
               merged[k.toString()] = {
                 ...merged[k.toString()]!,
-                ...Map<String, dynamic>.from(v),
+                ...JsonMap.from(v),
               };
             }
           });
@@ -1082,10 +1067,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       if (pausesRes.statusCode == 200 && pausesRes.body != 'null') {
         final decoded = jsonDecode(pausesRes.body);
         if (decoded is List) {
-          final listP = decoded
-              .whereType()
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
+          final listP =
+              decoded.whereType().map((e) => JsonMap.from(e)).toList();
           if (mounted) setState(() => _pauses = listP);
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(kPrefPauses, jsonEncode(listP));
@@ -1104,7 +1087,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     } catch (_) {}
   }
-      Future<void> _saveNewAdminPass(String newPass) async {
+
+  Future<void> _saveNewAdminPass(String newPass) async {
     final clean = newPass.trim();
     if (clean.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1123,8 +1107,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       const SnackBar(content: Text('Nova palavra-passe guardada com sucesso!')),
     );
   }
-
-  Future<void> _checkPass() async {
+      Future<void> _checkPass() async {
     if (_passController.text.trim() == _adminPass) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(kPrefLoggedIn, true);
@@ -1175,15 +1158,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       final memRes =
           await http.get(Uri.parse('$kFirebaseDbUrl/plan_members.json'));
 
-      final Map<String, Map<String, dynamic>> uniqueClients = {};
-      final List> memList = [];
+      final Map<String, JsonMap> uniqueClients = {};
+      final List<JsonMap> memList = [];
 
       if (cliRes.statusCode == 200 && cliRes.body != 'null') {
         final d = jsonDecode(cliRes.body);
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map<String, dynamic>.from(v);
+              final item = JsonMap.from(v);
               item['id'] = k.toString();
               final pNorm = _normalizePhone((item['phone'] ?? '').toString());
               final nNorm = _normalizeNameShared((item['name'] ?? '').toString());
@@ -1214,7 +1197,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map<String, dynamic>.from(v);
+              final item = JsonMap.from(v);
               item['id'] = k.toString();
               memList.add(item);
             }
@@ -1282,8 +1265,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
       final res = await http.get(uri);
       if (res.statusCode == 200) {
-        final List> loaded = [];
-        final List> brandNew = [];
+        final List<JsonMap> loaded = [];
+        final List<JsonMap> brandNew = [];
         final Set<String> allSignatures = {};
 
         if (res.body != 'null') {
@@ -1292,7 +1275,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             final deduped = _deduplicateBookingsMap(decoded);
 
             for (final item in deduped) {
-              // Se o site gerou duplicatas no Firebase, limpa os nós redundantes
               final mergedKeys = (item['_mergedFirebaseKeys'] as List?)
                       ?.map((e) => e.toString())
                       .toList() ??
@@ -1309,8 +1291,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               final sig = _bookingDedupeKey(item, fKey);
               allSignatures.add(sig);
               allSignatures.add('fb:$fKey');
-
-              final alreadyKnown = _knownSignatures.contains(sig) ||
+                             final alreadyKnown = _knownSignatures.contains(sig) ||
                   _knownSignatures.contains('fb:$fKey');
 
               if (_firstLoadDone && !alreadyKnown) {
@@ -1378,32 +1359,25 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
   }
-      Future<void> _fetchCatalog() async {
+
+  Future<void> _fetchCatalog() async {
     try {
       final srvRes = await http.get(Uri.parse('$kFirebaseDbUrl/services.json'));
       final plnRes = await http.get(Uri.parse('$kFirebaseDbUrl/plans.json'));
 
-      final List> srvList = [];
-      final List> plnList = [];
+      final List<JsonMap> srvList = [];
+      final List<JsonMap> plnList = [];
 
       if (srvRes.statusCode == 200 && srvRes.body != 'null') {
         final d = jsonDecode(srvRes.body);
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map<String, dynamic>.from(v);
+              final item = JsonMap.from(v);
               item['id'] = k.toString();
               srvList.add(item);
             }
           });
-        } else if (d is List) {
-          for (var i = 0; i < d.length; i++) {
-            if (d[i] is Map) {
-              final item = Map<String, dynamic>.from(d[i] as Map);
-              item['id'] = i.toString();
-              srvList.add(item);
-            }
-          }
         }
       }
 
@@ -1412,19 +1386,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map<String, dynamic>.from(v);
+              final item = JsonMap.from(v);
               item['id'] = k.toString();
               plnList.add(item);
             }
           });
-        } else if (d is List) {
-          for (var i = 0; i < d.length; i++) {
-            if (d[i] is Map) {
-              final item = Map<String, dynamic>.from(d[i] as Map);
-              item['id'] = i.toString();
-              plnList.add(item);
-            }
-          }
         }
       }
 
@@ -1432,12 +1398,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() {
         _services = srvList.isNotEmpty
             ? srvList
-            : kDefaultServices
-                .map((e) => Map<String, dynamic>.from(e))
-                .toList();
+            : kDefaultServices.map((e) => JsonMap.from(e)).toList();
         _plans = plnList.isNotEmpty
             ? plnList
-            : kDefaultPlans.map((e) => Map<String, dynamic>.from(e)).toList();
+            : kDefaultPlans.map((e) => JsonMap.from(e)).toList();
       });
     } catch (_) {}
   }
@@ -1445,13 +1409,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   Future<void> _fetchBarbers() async {
     try {
       final res = await http.get(Uri.parse('$kFirebaseDbUrl/barbers.json'));
-      final List> list = [];
+      final List<JsonMap> list = [];
       if (res.statusCode == 200 && res.body != 'null') {
         final d = jsonDecode(res.body);
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map<String, dynamic>.from(v);
+              final item = JsonMap.from(v);
               item['id'] = k.toString();
               final nm = _normalizeNameShared((item['name'] ?? '').toString());
               if (nm == 'jhonny' || nm == 'mr. jone' || nm == 'mr jone') {
@@ -1466,7 +1430,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         } else if (d is List) {
           for (var i = 0; i < d.length; i++) {
             if (d[i] is Map) {
-              final item = Map<String, dynamic>.from(d[i] as Map);
+              final item = JsonMap.from(d[i] as Map);
               item['id'] = i.toString();
               list.add(item);
             }
@@ -1480,10 +1444,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           _normalizeNameShared((b['name'] ?? '').toString()) == 'marcelo');
 
       if (!hasJhonny) {
-        list.insert(0, Map<String, dynamic>.from(kDefaultBarbers[0]));
+        list.insert(0, JsonMap.from(kDefaultBarbers[0]));
       }
       if (!hasMarcelo) {
-        list.add(Map<String, dynamic>.from(kDefaultBarbers[1]));
+        list.add(JsonMap.from(kDefaultBarbers[1]));
       }
 
       if (!mounted) return;
@@ -1511,8 +1475,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return names[(dt.weekday - 1).clamp(0, 6)];
   }
 
-  Map<String, dynamic>? _findPlanMember({
-    String? clientName,
+  JsonMap? _findPlanMember({
+         String? clientName,
     String? clientPhone,
   }) {
     final normPhone = _normalizePhone(clientPhone ?? '');
@@ -1542,9 +1506,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return !expiry.isBefore(today);
   }
 
-  /// Se o cliente tem plano VÁLIDO -> retorna SOMENTE o plano (bloqueia avulso).
-  /// Se o plano VENCEU -> retorna SOMENTE os preços avulsos (libera avulso e bloqueia plano).
-  List> _allowedCatalogOptions({
+  List<JsonMap> _allowedCatalogOptions({
     String? clientName,
     String? clientPhone,
   }) {
@@ -1557,7 +1519,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       if (_isPlanMemberValid(member)) {
         final assignedPlanName =
             _normalizeNameShared((member['planName'] ?? '').toString());
-        final List> planOnly = [];
+        final List<JsonMap> planOnly = [];
 
         for (final p in _plans) {
           if (p['active'] == false) continue;
@@ -1595,7 +1557,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           }
         ];
       } else {
-        final List> avulsosOnly = [];
+        final List<JsonMap> avulsosOnly = [];
         for (final s in _services) {
           if (s['active'] == false) continue;
           avulsosOnly.add({
@@ -1612,7 +1574,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
 
-    final List> all = [];
+    final List<JsonMap> all = [];
     for (final s in _services) {
       if (s['active'] == false) continue;
       all.add({
@@ -1639,7 +1601,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     return all;
   }
-      int? _timeToMinutes(String raw) {
+
+  int? _timeToMinutes(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
     final parts = clean.split(':');
@@ -1687,20 +1650,18 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  /// Retorna todos os agendamentos que ocupam o intervalo [slotMin, slotMin+step).
-  /// Marca `isStart == true` apenas no horário inicial para nunca renderizar 4x repetido!
-  List> _findBookingsAtSlot(
+  List<JsonMap> _findBookingsAtSlot(
     DateTime day,
     int slotMin, {
     String barberFilter = 'TODOS',
   }) {
     final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
     final int slotEnd = slotMin + step;
-    final List> hits = [];
+    final List<JsonMap> hits = [];
 
     for (final b in _bookings) {
       final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado') continue;
+             if (st == 'cancelado') continue;
 
       final bDt = _parseBookingDate(b);
       if (!_isSameDay(bDt, day)) continue;
@@ -1729,7 +1690,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return hits;
   }
 
-  Map<String, dynamic>? _findPauseAtSlot(DateTime day, int slotMin) {
+  JsonMap? _findPauseAtSlot(DateTime day, int slotMin) {
     final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
     final int slotEnd = slotMin + step;
 
@@ -1753,7 +1714,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   bool _isCompletedStatus(Map b) {
-    final st = (b['status'] ?? '').toString().trim().toLowerCase();
+    final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
     return st == 'concluído' || st == 'concluido';
   }
 
@@ -1854,7 +1815,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return true;
   }
 
-  Map<String, dynamic> _periodFinancialSummary(
+  JsonMap _periodFinancialSummary(
     String period, {
     bool onlyCompleted = true,
   }) {
@@ -1877,21 +1838,22 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       'count': count,
     };
   }
-      List<String> _allKeysForBooking(Map b) {
+
+  List<String> _allKeysForBooking(Map b) {
     final list = <String>[];
     final mainKey = (b['firebaseKey'] ?? '').toString();
     if (mainKey.isNotEmpty) list.add(mainKey);
     if (b['_mergedFirebaseKeys'] is List) {
       for (final mk in (b['_mergedFirebaseKeys'] as List)) {
         if (mk.toString().isNotEmpty) list.add(mk.toString());
-      }
+                }
     }
     return list.toSet().toList();
   }
 
   Future<void> _patchBookingKeys(
     List<String> keys,
-    Map<String, dynamic> patch,
+    JsonMap patch,
   ) async {
     final cleanKeys = keys.where((k) => k.isNotEmpty).toSet().toList();
     if (cleanKeys.isEmpty) return;
@@ -1969,7 +1931,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
     }
   }
-      @override
+
+  @override
   Widget build(BuildContext context) {
     if (!_unlocked) {
       return Scaffold(
@@ -2068,7 +2031,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             fontWeight: FontWeight.bold,
             color: Color(0xFFF3D97E),
           ),
-        ),
+                   ),
         actions: [
           Stack(
             children: [
@@ -2193,7 +2156,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildAgendaAndAccountingTab() {
+
+  Widget _buildAgendaAndAccountingTab() {
     final diario = _periodFinancialSummary(
       'diario',
       onlyCompleted: _onlyCompletedInAccounting,
@@ -2207,8 +2171,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       onlyCompleted: _onlyCompletedInAccounting,
     );
 
-    final List> accountingFilteredBookings =
-        _bookings.where((b) {
+    final List<JsonMap> accountingFilteredBookings = _bookings.where((b) {
       if (!_shouldCountBooking(b, onlyCompleted: _onlyCompletedInAccounting)) {
         return false;
       }
@@ -2221,11 +2184,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         padding: const EdgeInsets.all(12),
         children: [
           _buildHeaderBanner(),
-
-          // 1. GRADE ÚNICA DO DIA (OCUPADOS + HORÁRIOS VAGOS)
           _buildScheduleGridSection(),
-
-          // 2. GRADE DE CONTABILIDADE DIÁRIA, SEMANAL E MENSAL
           Card(
             color: const Color(0xFF141417),
             shape: RoundedRectangleBorder(
@@ -2240,12 +2199,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'CONTABILIDADE (DIÁRIA • SEMANAL • MENSAL)',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFFF3D97E),
+                      const Expanded(
+                        child: Text(
+                          'CONTABILIDADE (DIÁRIA • SEMANAL • MENSAL)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFF3D97E),
+                          ),
                         ),
                       ),
                       Row(
@@ -2255,7 +2216,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           Switch(
                             value: _onlyCompletedInAccounting,
                             activeColor: const Color(0xFFD4AF37),
-                            onChanged: (v) =>
+                                                         onChanged: (v) =>
                                 setState(() => _onlyCompletedInAccounting = v),
                           ),
                         ],
@@ -2263,7 +2224,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  // Grade comparativa lado a lado
                   Table(
                     border: TableBorder.all(
                       color: const Color(0x33D4AF37),
@@ -2318,7 +2278,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  // Seletor para ver a grade resumida de clientes daquele período
                   Row(
                     children: [
                       _periodChip('diario', 'Diária'),
@@ -2432,7 +2391,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
-  TableRow _buildAccountingTableRow(String label, Map<String, dynamic> data) {
+  TableRow _buildAccountingTableRow(String label, JsonMap data) {
     return TableRow(
       children: [
         Padding(
@@ -2441,7 +2400,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             '$label\n(${data['count']} atend.)',
             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
           ),
-        ),
+                    ),
         Padding(
           padding: const EdgeInsets.all(6),
           child: Text(
@@ -2484,22 +2443,24 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       onSelected: (_) => setState(() => _accountingPeriodFilter = key),
     );
   }
-      Widget _buildScheduleGridSection() {
+
+  Widget _buildScheduleGridSection() {
     final String expKey = _expedienteKeyForDate(_gridSelectedDate);
-    final Map<String, dynamic> dayExp = _expediente[expKey] ?? {};
+    final JsonMap dayExp = _expediente[expKey] ?? {};
     final bool isOpen = dayExp['ativo'] == true;
     final String dateBR = _formatDateBR(_gridSelectedDate);
     final String weekdayName = _weekdayFullName(_gridSelectedDate);
 
-    final List turnos = [];
-    final t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
-    final t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
+    final List<IntMap> turnos = [];
+    final int? t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
+    final int? t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
     if (t1s != null && t1e != null && t1e > t1s) {
       turnos.add({'start': t1s, 'end': t1e});
     }
     if (dayExp['t2Ativo'] == true) {
-      final t2s = _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
-      final t2e = _timeToMinutes((dayExp['t2Fim'] ?? '19:30').toString());
+      final int? t2s =
+          _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
+      final int? t2e = _timeToMinutes((dayExp['t2Fim'] ?? '19:30').toString());
       if (t2s != null && t2e != null && t2e > t2s) {
         turnos.add({'start': t2s, 'end': t2e});
       }
@@ -2507,24 +2468,28 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
     final List<int> slotMinutes = [];
-    for (final t in turnos) {
-      for (int m = t['start']!; m < t['end']!; m += step) {
-        if (!slotMinutes.contains(m)) slotMinutes.add(m);
+    for (final IntMap t in turnos) {
+      final int startM = t['start'] ?? 0;
+      final int endM = t['end'] ?? 0;
+      for (int m = startM; m < endM; m += step) {
+        if (!slotMinutes.contains(m)) {
+          slotMinutes.add(m);
+        }
       }
     }
 
-    // Também garante que agendamentos fora da grade padrão apareçam sem sumir
-    for (final b in _bookings) {
-      final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
+    for (final JsonMap b in _bookings) {
+      final String st =
+          (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
       if (st == 'cancelado') continue;
-      final bDt = _parseBookingDate(b);
+      final DateTime? bDt = _parseBookingDate(b);
       if (!_isSameDay(bDt, _gridSelectedDate)) continue;
       if (_gridSelectedBarberFilter != 'TODOS' &&
           !_sameBarberName(
               b['barberName']?.toString(), _gridSelectedBarberFilter)) {
         continue;
       }
-      final sm = _timeToMinutes((b['time'] ?? '').toString());
+      final int? sm = _timeToMinutes((b['time'] ?? '').toString());
       if (sm != null && !slotMinutes.contains(sm)) {
         slotMinutes.add(sm);
       }
@@ -2534,23 +2499,21 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final Set<String> renderedBookingKeys = {};
     final List<Widget> gridRows = [];
 
-    for (final m in slotMinutes) {
+    for (final int m in slotMinutes) {
       final String slotStartStr = _minutesToTime(m);
       final String slotEndStr = _minutesToTime(m + step);
-      final pauseHit = _findPauseAtSlot(_gridSelectedDate, m);
-      final bookingHits = _findBookingsAtSlot(
+      final JsonMap? pauseHit = _findPauseAtSlot(_gridSelectedDate, m);
+      final List<JsonMap> bookingHits = _findBookingsAtSlot(
         _gridSelectedDate,
         m,
         barberFilter: _gridSelectedBarberFilter,
       );
 
       if (bookingHits.isNotEmpty) {
-        for (final hit in bookingHits) {
-          final bk = hit['booking'] as Map<String, dynamic>;
-          final uniqueId =
+        for (final JsonMap hit in bookingHits) {
+          final JsonMap bk = hit['booking'] as JsonMap;
+          final String uniqueId =
               _bookingDedupeKey(bk, (bk['firebaseKey'] ?? '').toString());
-          // Se este agendamento já foi exibido no horário inicial (ex: 09:00 às 10:00),
-          // não repete nos blocos intermediários (09:15, 09:30, 09:45)!
           if (renderedBookingKeys.contains(uniqueId)) continue;
           renderedBookingKeys.add(uniqueId);
 
@@ -2621,7 +2584,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             Text(
                               '$srvSummary • $bName ($stLabel)',
                               style: const TextStyle(
-                                fontSize: 12,
+                                                                 fontSize: 12,
                                 color: Colors.white,
                               ),
                             ),
@@ -2679,7 +2642,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         icon: Icons.delete_outline,
                         color: Colors.redAccent,
                         onTap: () async {
-                          for (final k in _allKeysForBooking(bk)) {
+                          for (final String k in _allKeysForBooking(bk)) {
                             await http.delete(
                                 Uri.parse('$kFirebaseDbUrl/bookings/$k.json'));
                           }
@@ -2731,7 +2694,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         continue;
       }
 
-      // Horário vago na grade
       gridRows.add(
         Container(
           margin: const EdgeInsets.only(bottom: 6),
@@ -2791,15 +2753,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Barra de dias rápidos + Calendário
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  ...List.generate(7, (idx) {
-                    final d = DateTime.now().add(Duration(days: idx));
-                    final selected = _isSameDay(d, _gridSelectedDate);
-                    final lbl =
+                  ...List<Widget>.generate(7, (int idx) {
+                    final DateTime d = DateTime.now().add(Duration(days: idx));
+                    final bool selected = _isSameDay(d, _gridSelectedDate);
+                    final String lbl =
                         '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} • ${_weekdayFullName(d).substring(0, 3)}';
                     return Padding(
                       padding: const EdgeInsets.only(right: 6),
@@ -2807,7 +2768,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         label: Text(lbl, style: const TextStyle(fontSize: 11)),
                         selected: selected,
                         selectedColor: const Color(0xFFD4AF37),
-                        labelStyle: TextStyle(
+                                                  labelStyle: TextStyle(
                           color: selected ? Colors.black : Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
@@ -2821,7 +2782,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     icon: const Icon(Icons.calendar_month,
                         color: Color(0xFFD4AF37)),
                     onPressed: () async {
-                      final picked = await showDatePicker(
+                      final DateTime? picked = await showDatePicker(
                         context: context,
                         initialDate: _gridSelectedDate,
                         firstDate: DateTime(2024),
@@ -2836,7 +2797,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               ),
             ),
             const SizedBox(height: 6),
-            // Filtro por barbeiro
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -2856,9 +2816,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         setState(() => _gridSelectedBarberFilter = 'TODOS'),
                   ),
                   const SizedBox(width: 6),
-                  ..._barbers.map((br) {
-                    final bName = (br['name'] ?? '').toString();
-                    final selected = _sameBarberName(
+                  ..._barbers.map((JsonMap br) {
+                    final String bName = (br['name'] ?? '').toString();
+                    final bool selected = _sameBarberName(
                             bName, _gridSelectedBarberFilter) &&
                         _gridSelectedBarberFilter != 'TODOS';
                     return Padding(
@@ -2955,7 +2915,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Future<void> _openEditBookingDialog(Map<String, dynamic> b) async {
+
+  Future<void> _openEditBookingDialog(JsonMap b) async {
     final nameCtrl =
         TextEditingController(text: (b['clientName'] ?? '').toString());
     final phoneCtrl = TextEditingController(
@@ -2976,7 +2937,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
 
     String currentSrvName = _buildServiceSummary(b);
-    Map<String, dynamic> selectedService = options.firstWhere(
+    JsonMap selectedService = options.firstWhere(
       (opt) =>
           _normalizeNameShared(opt['name'].toString()) ==
           _normalizeNameShared(currentSrvName),
@@ -2991,8 +2952,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             final dynamicOptions = _allowedCatalogOptions(
               clientName: nameCtrl.text,
               clientPhone: phoneCtrl.text,
-            );
-            if (!dynamicOptions.any((o) => o['name'] == selectedService['name'])) {
+                            );
+            if (!dynamicOptions
+                .any((o) => o['name'] == selectedService['name'])) {
               selectedService = dynamicOptions.first;
             }
             final member = _findPlanMember(
@@ -3056,8 +3018,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       controller: phoneCtrl,
                       onChanged: (_) => setModalState(() {}),
                       keyboardType: TextInputType.phone,
-                      decoration:
-                          const InputDecoration(labelText: 'WhatsApp / Telefone'),
+                      decoration: const InputDecoration(
+                          labelText: 'WhatsApp / Telefone'),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -3065,16 +3027,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         Expanded(
                           child: TextField(
                             controller: dateCtrl,
-                            decoration:
-                                const InputDecoration(labelText: 'Data (DD/MM/AAAA)'),
+                            decoration: const InputDecoration(
+                                labelText: 'Data (DD/MM/AAAA)'),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             controller: timeCtrl,
-                            decoration:
-                                const InputDecoration(labelText: 'Hora (HH:MM)'),
+                            decoration: const InputDecoration(
+                                labelText: 'Hora (HH:MM)'),
                           ),
                         ),
                       ],
@@ -3115,11 +3077,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       style: TextStyle(fontSize: 12, color: Color(0xFFF3D97E)),
                     ),
                     DropdownButtonFormField<String>(
-                      value: _barbers.any((br) =>
-                              _sameBarberName(br['name']?.toString(), selectedBarber))
+                      value: _barbers.any((br) => _sameBarberName(
+                              br['name']?.toString(), selectedBarber))
                           ? _barbers
                               .firstWhere((br) => _sameBarberName(
-                                  br['name']?.toString(), selectedBarber))['name']
+                                  br['name']?.toString(),
+                                  selectedBarber))['name']
                               .toString()
                           : _barbers.first['name'].toString(),
                       dropdownColor: const Color(0xFF1D1D22),
@@ -3173,7 +3136,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                               selectedService['sessionsPerMonth'] ?? 1,
                         }
                       ],
-                      'updatedAt': DateTime.now().toIso8601String(),
+                                              'updatedAt': DateTime.now().toIso8601String(),
                     };
 
                     await _patchBookingKeys(
@@ -3190,7 +3153,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       },
     );
   }
-     Future<void> _openManualEntryDialog({
+
+  Future<void> _openManualEntryDialog({
     String? presetDateStr,
     String? presetTimeStr,
   }) async {
@@ -3205,7 +3169,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     bool markAsCompletedNow = false;
 
     final initialOptions = _allowedCatalogOptions();
-    Map<String, dynamic> selectedService = initialOptions.first;
+    JsonMap selectedService = initialOptions.first;
 
     await showDialog(
       context: context,
@@ -3216,7 +3180,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               clientName: nameCtrl.text,
               clientPhone: phoneCtrl.text,
             );
-            if (!dynamicOptions.any((o) => o['name'] == selectedService['name'])) {
+            if (!dynamicOptions
+                .any((o) => o['name'] == selectedService['name'])) {
               selectedService = dynamicOptions.first;
             }
             final member = _findPlanMember(
@@ -3280,8 +3245,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       controller: phoneCtrl,
                       onChanged: (_) => setModalState(() {}),
                       keyboardType: TextInputType.phone,
-                      decoration:
-                          const InputDecoration(labelText: 'WhatsApp (DDD + Número)'),
+                      decoration: const InputDecoration(
+                          labelText: 'WhatsApp (DDD + Número)'),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -3289,16 +3254,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         Expanded(
                           child: TextField(
                             controller: dateCtrl,
-                            decoration:
-                                const InputDecoration(labelText: 'Data (DD/MM/AAAA)'),
+                            decoration: const InputDecoration(
+                                labelText: 'Data (DD/MM/AAAA)'),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             controller: timeCtrl,
-                            decoration:
-                                const InputDecoration(labelText: 'Hora (HH:MM)'),
+                            decoration: const InputDecoration(
+                                labelText: 'Hora (HH:MM)'),
                           ),
                         ),
                       ],
@@ -3355,7 +3320,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     const SizedBox(height: 8),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text(
+                                              title: const Text(
                         'Já contabilizar como CONCLUÍDO agora',
                         style: TextStyle(fontSize: 12),
                       ),
@@ -3385,7 +3350,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     final normDate = _normalizeDateShared(dateCtrl.text);
                     final normTime = _normalizeTimeShared(timeCtrl.text);
 
-                    // Chave determinística no Firebase evita duplicata se clicar 2x
                     final deterministicId =
                         'bk_${normDate.replaceAll('/', '')}_${normTime.replaceAll(':', '')}_${_normalizeNameShared(selectedBarber).replaceAll(' ', '_')}_${normPhone.isNotEmpty ? normPhone : _normalizeNameShared(clientName).replaceAll(' ', '_')}';
 
@@ -3422,7 +3386,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     };
 
                     await http.put(
-                      Uri.parse('$kFirebaseDbUrl/bookings/$deterministicId.json'),
+                      Uri.parse(
+                          '$kFirebaseDbUrl/bookings/$deterministicId.json'),
                       headers: {'Content-Type': 'application/json'},
                       body: jsonEncode(payload),
                     );
@@ -3446,8 +3411,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         );
       },
     );
-     }
-        Widget _buildCatalogTab() {
+  }
+
+  Widget _buildCatalogTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -3505,8 +3471,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
-  Widget _buildCatalogItemCard(Map<String, dynamic> item,
-      {required bool isPlan}) {
+  Widget _buildCatalogItemCard(JsonMap item, {required bool isPlan}) {
     final price = double.tryParse('${item['price'] ?? 0}') ?? 0.0;
     final dur = item['duration'] ?? 30;
     final active = item['active'] != false;
@@ -3539,7 +3504,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               icon: const Icon(Icons.delete_outline,
                   color: Colors.redAccent, size: 20),
               onPressed: () async {
-                final node = isPlan ? 'plans' : 'services';
+                                 final node = isPlan ? 'plans' : 'services';
                 final id = (item['id'] ?? '').toString();
                 if (id.isNotEmpty) {
                   await http
@@ -3554,8 +3519,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Future<void> _openCatalogItemDialog({
-    Map<String, dynamic>? existing,
+
+  Future<void> _openCatalogItemDialog({
+    JsonMap? existing,
     required bool isPlan,
   }) async {
     final nameCtrl =
@@ -3614,8 +3580,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           child: TextField(
                             controller: durCtrl,
                             keyboardType: TextInputType.number,
-                            decoration:
-                                const InputDecoration(labelText: 'Duração (min)'),
+                            decoration: const InputDecoration(
+                                labelText: 'Duração (min)'),
                           ),
                         ),
                       ],
@@ -3665,8 +3631,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           0.0,
                       'duration': int.tryParse(durCtrl.text.trim()) ?? 30,
                       'isPlan': isPlan,
-                      'sessionsPerMonth':
-                          isPlan ? (int.tryParse(sessCtrl.text.trim()) ?? 4) : 1,
+                      'sessionsPerMonth': isPlan
+                          ? (int.tryParse(sessCtrl.text.trim()) ?? 4)
+                          : 1,
                       'active': isActive,
                       'updatedAt': DateTime.now().toIso8601String(),
                     };
@@ -3689,8 +3656,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         );
       },
     );
-      }
-         Widget _buildExpedienteTab() {
+  }
+
+  Widget _buildExpedienteTab() {
     const orderedKeys = ['1', '2', '3', '4', '5', '6', '0'];
 
     return ListView(
@@ -3720,7 +3688,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     return ChoiceChip(
                       label: Text('$mins min'),
                       selected: sel,
-                      selectedColor: const Color(0xFFD4AF37),
+                                              selectedColor: const Color(0xFFD4AF37),
                       labelStyle: TextStyle(
                         color: sel ? Colors.black : Colors.white,
                         fontWeight: FontWeight.bold,
@@ -3849,8 +3817,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content:
-                    Text('Expediente salvo e atualizado no site em tempo real!'),
+                content: Text(
+                    'Expediente salvo e atualizado no site em tempo real!'),
               ),
             );
           },
@@ -3904,7 +3872,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-
+   
   Future<void> _openAddPauseDialog() async {
     final dateCtrl = TextEditingController();
     final startCtrl = TextEditingController(text: '12:00');
@@ -3968,7 +3936,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildClientsAndPlansTab() {
+
+  Widget _buildClientsAndPlansTab() {
     final filteredClients = _clients.where((c) {
       if (_clientSearchQuery.trim().isEmpty) return true;
       final q = _normalizeNameShared(_clientSearchQuery);
@@ -4087,7 +4056,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     if (phone.isNotEmpty)
                       Text(
                         'WhatsApp: $phone',
-                        style: const TextStyle(
+                                                  style: const TextStyle(
                             fontSize: 11, color: Colors.white60),
                       ),
                     const SizedBox(height: 8),
@@ -4175,8 +4144,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         }),
       ],
     );
-      }
-         Future<void> _sendManualPlanExpiryWhatsApp(Map<String, dynamic> m) async {
+  }
+
+  Future<void> _sendManualPlanExpiryWhatsApp(JsonMap m) async {
     final cName = (m['clientName'] ?? 'Cliente').toString();
     final planName = (m['planName'] ?? 'Plano Mensal').toString();
     final expStr = (m['expiresAt'] ?? '').toString();
@@ -4193,7 +4163,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   Future<void> _openPlanMemberDialog({
-    Map<String, dynamic>? existing,
+    JsonMap? existing,
     String? presetName,
     String? presetPhone,
   }) async {
@@ -4201,11 +4171,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         text: (existing?['clientName'] ?? presetName ?? '').toString());
     final phoneCtrl = TextEditingController(
         text: (existing?['phone'] ?? presetPhone ?? '').toString());
-    final defaultExpiry = _formatDateBR(DateTime.now().add(const Duration(days: 30)));
+    final defaultExpiry =
+        _formatDateBR(DateTime.now().add(const Duration(days: 30)));
     final expiryCtrl = TextEditingController(
         text: (existing?['expiresAt'] ?? defaultExpiry).toString());
 
-    Map<String, dynamic> selectedPlan = _plans.firstWhere(
+    JsonMap selectedPlan = _plans.firstWhere(
       (p) =>
           _normalizeNameShared(p['name'].toString()) ==
           _normalizeNameShared((existing?['planName'] ?? '').toString()),
@@ -4239,8 +4210,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     TextField(
                       controller: phoneCtrl,
                       keyboardType: TextInputType.phone,
-                      decoration:
-                          const InputDecoration(labelText: 'WhatsApp (DDD + Número)'),
+                      decoration: const InputDecoration(
+                          labelText: 'WhatsApp (DDD + Número)'),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -4269,7 +4240,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                               });
                             }
                           },
-                        ),
+                                                    ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -4367,7 +4338,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       },
     );
   }
-      Widget _buildBarbersTab() {
+
+  Widget _buildBarbersTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -4452,7 +4424,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   color: Color(0xFFF3D97E),
                 ),
               ),
-              subtitle: Text(
+                              subtitle: Text(
                 'Atendimentos: $atendimentos • Produzido: R\$ ${gerado.toStringAsFixed(2)} • Comissão: R\$ ${comissao.toStringAsFixed(2)}',
                 style: const TextStyle(fontSize: 12),
               ),
@@ -4467,7 +4439,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
-  Future<void> _openBarberDialog({Map<String, dynamic>? existing}) async {
+  Future<void> _openBarberDialog({JsonMap? existing}) async {
     final nameCtrl =
         TextEditingController(text: (existing?['name'] ?? '').toString());
     final roleCtrl = TextEditingController(
@@ -4538,7 +4510,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildSettingsTab() {
+
+  Widget _buildSettingsTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -4637,4 +4610,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 }
 
     
- 
+
+            
+          
