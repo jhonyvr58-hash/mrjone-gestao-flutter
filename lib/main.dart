@@ -220,7 +220,7 @@ final List<JsonMap> kDefaultBarbers = [
     'active': true,
   },
 ];
- final FlutterLocalNotificationsPlugin kNotificationsPlugin =
+final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
 String _normalizePhoneShared(String raw) {
@@ -246,7 +246,8 @@ String _normalizeNameShared(String raw) {
 
 String _canonicalBarberKeyShared(String raw) {
   final n = _normalizeNameShared(raw).replaceAll('.', '').trim();
-  if (n == 'jone' ||
+  if (n.isEmpty ||
+      n == 'jone' ||
       n == 'mr jone' ||
       n == 'mrjone' ||
       n == 'jhonny' ||
@@ -256,8 +257,59 @@ String _canonicalBarberKeyShared(String raw) {
   return n;
 }
 
+String _extractBookingDateRaw(Map b) {
+  for (final k in ['dateLabel', 'date', 'data', 'dia', 'bookingDate']) {
+    final v = (b[k] ?? '').toString().trim();
+    if (v.isNotEmpty) return v;
+  }
+  final created = (b['createdAt'] ?? '').toString().trim();
+  if (created.isNotEmpty) {
+    final dt = DateTime.tryParse(created);
+    if (dt != null) {
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+    }
+  }
+  return '';
+}
+
+String _extractBookingTimeRaw(Map b) {
+  for (final k in ['time', 'hora', 'horario', 'slot', 'startTime']) {
+    final v = (b[k] ?? '').toString().trim();
+    if (v.isNotEmpty) {
+      final match = RegExp(r'(\d{1,2}:\d{2})').firstMatch(v);
+      return match != null ? match.group(1)! : v;
+    }
+  }
+  return '';
+}
+
+String _extractBookingClientName(Map b) {
+  for (final k in ['clientName', 'name', 'cliente', 'nome']) {
+    final v = (b[k] ?? '').toString().trim();
+    if (v.isNotEmpty) return v;
+  }
+  return 'Cliente';
+}
+
+String _extractBookingClientPhone(Map b) {
+  for (final k in ['clientPhone', 'phone', 'telefone', 'whatsapp', 'fone']) {
+    final v = (b[k] ?? '').toString().trim();
+    if (v.isNotEmpty) return v;
+  }
+  return '';
+}
+
+String _extractBookingBarberRaw(Map b) {
+  for (final k in ['barberName', 'barber', 'barbeiro', 'profissional']) {
+    final v = (b[k] ?? '').toString().trim();
+    if (v.isNotEmpty) return v;
+  }
+  return 'Jhonny';
+}
+
 String _normalizeTimeShared(String raw) {
-  final clean = raw.trim();
+  final match = RegExp(r'(\d{1,2}:\d{2})').firstMatch(raw.trim());
+  final clean = match != null ? match.group(1)! : raw.trim();
   final parts = clean.split(':');
   if (parts.length >= 2) {
     final h = int.tryParse(parts[0].trim());
@@ -325,14 +377,11 @@ String _formatDateBRShared(DateTime dt) {
 }
 
 String _bookingDedupeKey(Map b, String firebaseKey) {
-  final client = _normalizeNameShared((b['clientName'] ?? '').toString());
-  final phone = _normalizePhoneShared(
-    (b['clientPhone'] ?? b['phone'] ?? '').toString(),
-  );
-  final date =
-      _normalizeDateShared((b['dateLabel'] ?? b['date'] ?? '').toString());
-  final time = _normalizeTimeShared((b['time'] ?? '').toString());
-  final barber = _canonicalBarberKeyShared((b['barberName'] ?? '').toString());
+  final client = _normalizeNameShared(_extractBookingClientName(b));
+  final phone = _normalizePhoneShared(_extractBookingClientPhone(b));
+  final date = _normalizeDateShared(_extractBookingDateRaw(b));
+  final time = _normalizeTimeShared(_extractBookingTimeRaw(b));
+  final barber = _canonicalBarberKeyShared(_extractBookingBarberRaw(b));
 
   if (date.isNotEmpty &&
       time.isNotEmpty &&
@@ -404,13 +453,11 @@ List<JsonMap> _deduplicateBookingsMap(Map decoded) {
 
   final result = byDedupe.values.toList();
   result.sort((a, b) {
-    final da =
-        _normalizeDateShared((a['dateLabel'] ?? a['date'] ?? '').toString());
-    final db =
-        _normalizeDateShared((b['dateLabel'] ?? b['date'] ?? '').toString());
+    final da = _normalizeDateShared(_extractBookingDateRaw(a));
+    final db = _normalizeDateShared(_extractBookingDateRaw(b));
     if (da != db) return db.compareTo(da);
-    final ta = _normalizeTimeShared((a['time'] ?? '').toString());
-    final tb = _normalizeTimeShared((b['time'] ?? '').toString());
+    final ta = _normalizeTimeShared(_extractBookingTimeRaw(a));
+    final tb = _normalizeTimeShared(_extractBookingTimeRaw(b));
     return ta.compareTo(tb);
   });
   return result;
@@ -550,7 +597,6 @@ Future<void> _upsertClientRemote({
       );
     }
 
-    // Índice rápido para o Site preencher automaticamente nome/telefone quando o cliente voltar
     if (finalPhone.isNotEmpty) {
       await http.put(
         Uri.parse('$kFirebaseDbUrl/site_clients_lookup/byPhone/$finalPhone.json'),
@@ -645,16 +691,17 @@ Future<void> _syncPlanRulesToSiteRemote() async {
 }
 Future<void> _publishOccupiedSlotsFromBookings(List<JsonMap> bookings) async {
   try {
+    // Limpa e reconstrói integralmente /occupied_slots.json apenas com marcações ativas
     final Map<String, List<JsonMap>> byDate = {};
 
     for (final b in bookings) {
       final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado') continue;
+      if (st == 'cancelado' || st == 'cancelada') continue;
 
-      final rawDate = (b['dateLabel'] ?? b['date'] ?? '').toString().trim();
+      final rawDate = _extractBookingDateRaw(b);
       final normDate = _normalizeDateShared(rawDate);
       final dateKey = normDate.replaceAll('/', '-');
-      final startTime = _normalizeTimeShared((b['time'] ?? '').toString());
+      final startTime = _normalizeTimeShared(_extractBookingTimeRaw(b));
       if (dateKey.isEmpty || startTime.isEmpty) continue;
 
       int dur = int.tryParse('${b['duration'] ?? 30}') ?? 30;
@@ -676,7 +723,7 @@ Future<void> _publishOccupiedSlotsFromBookings(List<JsonMap> bookings) async {
       final endH = (endMin ~/ 60).toString().padLeft(2, '0');
       final endM = (endMin % 60).toString().padLeft(2, '0');
 
-      final barberRaw = (b['barberName'] ?? 'Jhonny').toString();
+      final barberRaw = _extractBookingBarberRaw(b);
       final barberCanonical = _canonicalBarberKeyShared(barberRaw);
 
       byDate.putIfAbsent(dateKey, () => []).add({
@@ -688,8 +735,9 @@ Future<void> _publishOccupiedSlotsFromBookings(List<JsonMap> bookings) async {
         'duration': dur,
         'barberName': barberRaw,
         'barberCanonical': barberCanonical,
-        'clientName': (b['clientName'] ?? 'Cliente').toString(),
+        'clientName': _extractBookingClientName(b),
         'status': st,
+        'active': true,
       });
     }
 
@@ -820,14 +868,11 @@ void _onStartBackground(ServiceInstance service) async {
 
           int notifId = 500;
           for (final novo in brandNew) {
-            final client = (novo['clientName'] ?? 'Cliente').toString();
-            final phone =
-                (novo['clientPhone'] ?? novo['phone'] ?? '').toString();
-            final dateLbl =
-                (novo['dateLabel'] ?? novo['date'] ?? '').toString();
-            final timeLbl = (novo['time'] ?? '').toString();
-            final barber =
-                (novo['barberName'] ?? 'Barbearia Mr Jone').toString();
+            final client = _extractBookingClientName(novo);
+            final phone = _extractBookingClientPhone(novo);
+            final dateLbl = _extractBookingDateRaw(novo);
+            final timeLbl = _extractBookingTimeRaw(novo);
+            final barber = _extractBookingBarberRaw(novo);
 
             await _upsertClientRemote(
               name: client,
@@ -1032,7 +1077,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     _syncAll();
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 8),
+      const Duration(seconds: 6),
       (_) async {
         await _fetchBookings(silent: true);
         await _fetchBarbers();
@@ -1333,7 +1378,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
     await _fetchClientsAndPlanMembers();
   }
-     Future<void> _fetchClientsAndPlanMembers() async {
+      Future<void> _fetchClientsAndPlanMembers() async {
     try {
       final cliRes = await http.get(Uri.parse('$kFirebaseDbUrl/clients.json'));
       final memRes =
@@ -1487,11 +1532,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           }
         }
 
-        // Garante que qualquer cliente que marcou pelo site entre no banco de contatos
+        // Espelha exatamente os agendamentos do App no Site (/occupied_slots)
+        await _publishOccupiedSlotsFromBookings(loaded);
+
         for (final item in loaded) {
-          final cName = (item['clientName'] ?? '').toString().trim();
-          final cPhone =
-              (item['clientPhone'] ?? item['phone'] ?? '').toString().trim();
+          final cName = _extractBookingClientName(item);
+          final cPhone = _extractBookingClientPhone(item);
           if (cName.isNotEmpty || cPhone.isNotEmpty) {
             final alreadySaved = _clients.any((c) {
               final p1 = _normalizePhone((c['phone'] ?? '').toString());
@@ -1505,17 +1551,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               unawaited(_upsertClientFromBooking(
                 name: cName,
                 phone: cPhone,
-                bookingDate:
-                    (item['dateLabel'] ?? item['date'] ?? '').toString(),
-                bookingTime: (item['time'] ?? '').toString(),
+                bookingDate: _extractBookingDateRaw(item),
+                bookingTime: _extractBookingTimeRaw(item),
                 incrementCount: false,
               ));
             }
           }
         }
-
-        // Atualiza imediatamente os horários ocupados no Firebase para bloquear no Site
-        await _publishOccupiedSlotsFromBookings(loaded);
 
         await prefs.setStringList(
           kPrefKnownBookingKeys,
@@ -1525,14 +1567,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
         int notifId = 100;
         for (final novo in brandNew) {
-          final client = (novo['clientName'] ?? 'Cliente').toString();
-          final phone =
-              (novo['clientPhone'] ?? novo['phone'] ?? '').toString();
-          final dateLbl =
-              (novo['dateLabel'] ?? novo['date'] ?? '').toString();
-          final timeLbl = (novo['time'] ?? '').toString();
-          final barber =
-              (novo['barberName'] ?? 'Barbearia Mr Jone').toString();
+          final client = _extractBookingClientName(novo);
+          final phone = _extractBookingClientPhone(novo);
+          final dateLbl = _extractBookingDateRaw(novo);
+          final timeLbl = _extractBookingTimeRaw(novo);
+          final barber = _extractBookingBarberRaw(novo);
 
           await _upsertClientFromBooking(
             name: client,
@@ -1555,7 +1594,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           if (brandNew.isNotEmpty) {
             _newAlerts = [...brandNew, ..._newAlerts];
           }
-          _statusMsg = 'Online • ${loaded.length} registo(s) único(s)';
+          _statusMsg = 'Online • ${loaded.length} marcação(ões)';
         });
       } else {
         if (!mounted) return;
@@ -1746,7 +1785,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     await _publishAllConfigToSite(showFeedback: true);
   }
-      DateTime? _parseDateString(String raw) => _parseDateShared(raw);
+     DateTime? _parseDateString(String raw) => _parseDateShared(raw);
 
   String _formatDateBR(DateTime dt) => _formatDateBRShared(dt);
 
@@ -1894,7 +1933,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   int? _timeToMinutes(String raw) {
-    final clean = raw.trim();
+    final match = RegExp(r'(\d{1,2}:\d{2})').firstMatch(raw.trim());
+    final clean = match != null ? match.group(1)! : raw.trim();
     if (clean.isEmpty) return null;
     final parts = clean.split(':');
     if (parts.length < 2) return null;
@@ -1932,7 +1972,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   bool _sameBarberName(String? a, String? b) {
     final x = _canonicalBarberKeyShared(a ?? '');
     final y = _canonicalBarberKeyShared(b ?? '');
-    if (x.isEmpty || y.isEmpty) return false;
+    if (x.isEmpty || y.isEmpty) return true;
     return x == y;
   }
 
@@ -1951,16 +1991,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     for (final b in _bookings) {
       final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado') continue;
+      if (st == 'cancelado' || st == 'cancelada') continue;
 
       final bDt = _parseBookingDate(b);
-      if (!_isSameDay(bDt, day)) continue;
+      if (bDt != null && !_isSameDay(bDt, day)) continue;
 
-      if (!_sameBarberName(b['barberName']?.toString(), barberFilter)) {
+      if (!_sameBarberName(_extractBookingBarberRaw(b), barberFilter)) {
         continue;
       }
 
-      final startMin = _timeToMinutes((b['time'] ?? '').toString());
+      final startMin = _timeToMinutes(_extractBookingTimeRaw(b));
       if (startMin == null) continue;
       final dur = _bookingDurationMinutes(b);
       final endMin = startMin + dur;
@@ -1990,7 +2030,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     for (final b in _bookings) {
       final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado') continue;
+      if (st == 'cancelado' || st == 'cancelada') continue;
 
       if (ignoreBookingKey != null &&
           ignoreBookingKey.isNotEmpty &&
@@ -1999,13 +2039,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
 
       final bDt = _parseBookingDate(b);
-      if (!_isSameDay(bDt, day)) continue;
+      if (bDt != null && !_isSameDay(bDt, day)) continue;
 
-      if (!_sameBarberName(b['barberName']?.toString(), barberName)) {
+      if (!_sameBarberName(_extractBookingBarberRaw(b), barberName)) {
         continue;
       }
 
-      final bStart = _timeToMinutes((b['time'] ?? '').toString());
+      final bStart = _timeToMinutes(_extractBookingTimeRaw(b));
       if (bStart == null) continue;
       final bEnd = bStart + _bookingDurationMinutes(b);
 
@@ -2099,7 +2139,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   DateTime? _parseBookingDate(Map b) {
-    final rawDate = (b['dateLabel'] ?? b['date'] ?? '').toString().trim();
+    final rawDate = _extractBookingDateRaw(b);
     if (rawDate.isNotEmpty) {
       final parsed = _parseDateString(rawDate);
       if (parsed != null) return parsed;
@@ -2175,13 +2215,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   double _calcBookingCommission(Map b) {
-    final pct = _getBarberCommissionPct(b['barberName']?.toString());
+    final pct = _getBarberCommissionPct(_extractBookingBarberRaw(b));
     return _calcBookingValue(b) * (pct / 100.0);
   }
 
   bool _shouldCountBooking(Map b, {bool onlyCompleted = true}) {
     final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-    if (st == 'cancelado' || st == 'não concluído' || st == 'nao concluido') {
+    if (st == 'cancelado' ||
+        st == 'cancelada' ||
+        st == 'não concluído' ||
+        st == 'nao concluido') {
       return false;
     }
     if (onlyCompleted) {
@@ -2262,15 +2305,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   Future<void> _openWhatsApp(Map b, {bool rescheduled = false}) async {
-    final client = (b['clientName'] ?? 'Cliente').toString().trim();
-    final dateLbl = (b['dateLabel'] ?? b['date'] ?? '').toString().trim();
-    final timeLbl = (b['time'] ?? '').toString().trim();
-    final barber = (b['barberName'] ?? 'Barbearia Mr Jone').toString().trim();
+    final client = _extractBookingClientName(b);
+    final dateLbl = _extractBookingDateRaw(b);
+    final timeLbl = _extractBookingTimeRaw(b);
+    final barber = _extractBookingBarberRaw(b);
     final srvSummary = _buildServiceSummary(b);
 
-    final rawPhone = (b['clientPhone'] ?? b['phone'] ?? '')
-        .toString()
-        .replaceAll(RegExp(r'\D'), '');
+    final rawPhone =
+        _extractBookingClientPhone(b).replaceAll(RegExp(r'\D'), '');
 
     String normalizedPhone = rawPhone;
     if (normalizedPhone.length >= 10 && !normalizedPhone.startsWith('55')) {
@@ -2721,7 +2763,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                               Padding(
                                 padding: const EdgeInsets.all(6),
                                 child: Text(
-                                  '${b['clientName'] ?? 'Cliente'} (${b['time'] ?? ''})',
+                                  '${_extractBookingClientName(b)} (${_extractBookingTimeRaw(b)})',
                                   style: const TextStyle(fontSize: 11),
                                 ),
                               ),
@@ -2736,7 +2778,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                               Padding(
                                 padding: const EdgeInsets.all(6),
                                 child: Text(
-                                  '${b['barberName'] ?? 'Barbeiro'}',
+                                  _extractBookingBarberRaw(b),
                                   style: const TextStyle(fontSize: 11),
                                 ),
                               ),
@@ -2848,9 +2890,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           final bool isDone = _isCompletedStatus(bk);
           final String startStr = (hit['startStr'] ?? slotStartStr).toString();
           final String endStr = (hit['endStr'] ?? slotEndStr).toString();
-          final String cName = (bk['clientName'] ?? 'Cliente').toString();
-          final String cPhone =
-              (bk['clientPhone'] ?? bk['phone'] ?? '').toString();
+          final String cName = _extractBookingClientName(bk);
+          final String cPhone = _extractBookingClientPhone(bk);
           final String srvSummary = _buildServiceSummary(bk);
           final double val = _calcBookingValue(bk);
           final String stLabel = (bk['status'] ?? 'confirmado').toString();
@@ -3156,13 +3197,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     for (final JsonMap b in _bookings) {
       final String st =
           (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado') continue;
+      if (st == 'cancelado' || st == 'cancelada') continue;
       final DateTime? bDt = _parseBookingDate(b);
-      if (!_isSameDay(bDt, _gridSelectedDate)) continue;
-      if (!_sameBarberName(b['barberName']?.toString(), activeBarberName)) {
+      if (bDt != null && !_isSameDay(bDt, _gridSelectedDate)) continue;
+      if (!_sameBarberName(_extractBookingBarberRaw(b), activeBarberName)) {
         continue;
       }
-      final int? sm = _timeToMinutes((b['time'] ?? '').toString());
+      final int? sm = _timeToMinutes(_extractBookingTimeRaw(b));
       if (sm != null && !slotMinutes.contains(sm)) {
         slotMinutes.add(sm);
       }
@@ -3225,7 +3266,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               ),
             ),
             const SizedBox(height: 10),
-            // ABAS SEPARADAS PARA CADA BARBEIRO (NÃO UMA EMBAIXO DA OUTRA)
             Container(
               decoration: BoxDecoration(
                 color: const Color(0xFF0E0E11),
@@ -3244,10 +3284,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           .toString()
                           .trim()
                           .toLowerCase();
-                      if (st == 'cancelado') return false;
-                      return _isSameDay(
-                              _parseBookingDate(bk), _gridSelectedDate) &&
-                          _sameBarberName(bk['barberName']?.toString(), bName);
+                      if (st == 'cancelado' || st == 'cancelada') return false;
+                      final dt = _parseBookingDate(bk);
+                      return (dt == null || _isSameDay(dt, _gridSelectedDate)) &&
+                          _sameBarberName(
+                              _extractBookingBarberRaw(bk), bName);
                     }).length;
 
                     return Padding(
@@ -3372,18 +3413,19 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
      Future<void> _openEditBookingDialog(JsonMap b) async {
     final nameCtrl =
-        TextEditingController(text: (b['clientName'] ?? '').toString());
-    final phoneCtrl = TextEditingController(
-        text: (b['clientPhone'] ?? b['phone'] ?? '').toString());
+        TextEditingController(text: _extractBookingClientName(b));
+    final phoneCtrl =
+        TextEditingController(text: _extractBookingClientPhone(b));
     final dateCtrl = TextEditingController(
-        text: (b['dateLabel'] ?? b['date'] ?? _formatDateBR(DateTime.now()))
-            .toString());
-    final timeCtrl =
-        TextEditingController(text: (b['time'] ?? '09:00').toString());
+        text: _extractBookingDateRaw(b).isNotEmpty
+            ? _extractBookingDateRaw(b)
+            : _formatDateBR(DateTime.now()));
+    final timeCtrl = TextEditingController(
+        text: _extractBookingTimeRaw(b).isNotEmpty
+            ? _extractBookingTimeRaw(b)
+            : '09:00');
 
-    String selectedBarber = (b['barberName'] ??
-            (_barbers.isNotEmpty ? _barbers.first['name'] : 'Jhonny'))
-        .toString();
+    String selectedBarber = _extractBookingBarberRaw(b);
 
     final options = _allowedCatalogOptions(
       clientName: nameCtrl.text,
@@ -4007,8 +4049,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         );
       },
     );
-      }
-      Widget _buildCatalogTab() {
+  }
+    Widget _buildCatalogTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -5026,7 +5068,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 continue;
               }
               if (!_matchesPeriod(bk, _barberReportPeriod)) continue;
-              if (!_sameBarberName(bk['barberName']?.toString(), bName)) {
+              if (!_sameBarberName(_extractBookingBarberRaw(bk), bName)) {
                 continue;
               }
               gerado += _calcBookingValue(bk);
