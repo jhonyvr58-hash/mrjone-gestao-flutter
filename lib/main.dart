@@ -17,8 +17,7 @@ const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
 const String kPrefExpediente = 'mrjone_expediente_v1';
 const String kPrefPauses = 'mrjone_pauses_v1';
 const String kPrefSlotStep = 'mrjone_slot_step_v1';
-
-final Map<String, Map> kDefaultExpediente = {
+final Map<String, Map<String, dynamic>> kDefaultExpediente = {
   '1': {
     'name': 'Segunda',
     'ativo': true,
@@ -83,8 +82,7 @@ final Map<String, Map> kDefaultExpediente = {
     't2Fim': '18:00',
   },
 };
-
-final List kDefaultServices = [
+final List> kDefaultServices = [
   {
     'id': 'def_srv_1',
     'name': 'Cabelo e Barba (Combo Completo)',
@@ -158,8 +156,7 @@ final List kDefaultServices = [
     'sessionsPerMonth': 1,
   },
 ];
-
-final List kDefaultPlans = [
+final List> kDefaultPlans = [
   {
     'id': 'def_pln_1',
     'name': 'Plano Mensal: Cabelo e Barba (Toda Semana)',
@@ -189,9 +186,23 @@ final List kDefaultPlans = [
   },
 ];
 
+final List> kDefaultBarbers = [
+  {
+    'id': 'def_brb_jhonny',
+    'name': 'Jhonny',
+    'role': 'Proprietário / Barbeiro',
+    'commission': 100.0,
+  },
+  {
+    'id': 'def_brb_marcelo',
+    'name': 'Marcelo',
+    'role': 'Barbeiro',
+    'commission': 50.0,
+  },
+];
+
 final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
-
 String _normalizePhoneShared(String raw) {
   final digits = raw.replaceAll(RegExp(r'\D'), '');
   if (digits.length >= 10 && !digits.startsWith('55')) {
@@ -200,42 +211,77 @@ String _normalizePhoneShared(String raw) {
   return digits;
 }
 
+String _normalizeNameShared(String raw) {
+  return raw
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'\s+'), ' ');
+}
+
+String _normalizeTimeShared(String raw) {
+  final clean = raw.trim();
+  final parts = clean.split(':');
+  if (parts.length >= 2) {
+    final h = int.tryParse(parts[0].trim());
+    final m = int.tryParse(parts[1].trim());
+    if (h != null && m != null) {
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+    }
+  }
+  return clean.toLowerCase();
+}
+
+String _normalizeDateShared(String raw) {
+  final clean = raw.trim();
+  final slash = clean.split('/');
+  if (slash.length == 3) {
+    final d = int.tryParse(slash[0].trim());
+    final m = int.tryParse(slash[1].trim());
+    int? y = int.tryParse(slash[2].trim());
+    if (y != null && y < 100) y += 2000;
+    if (d != null && m != null && y != null) {
+      return '${d.toString().padLeft(2, '0')}/${m.toString().padLeft(2, '0')}/$y';
+    }
+  }
+  return clean.toLowerCase();
+}
 String _bookingDedupeKey(Map b, String firebaseKey) {
   final explicitId = (b['bookingId'] ?? b['clientBookingId'] ?? b['uid'] ?? '')
       .toString()
       .trim();
   if (explicitId.isNotEmpty) {
-    return 'id:$explicitId';
+    return 'id:${explicitId.toLowerCase()}';
   }
 
-  final client = (b['clientName'] ?? '').toString().trim().toLowerCase();
+  final client = _normalizeNameShared((b['clientName'] ?? '').toString());
   final phone = _normalizePhoneShared(
     (b['clientPhone'] ?? b['phone'] ?? '').toString(),
   );
-  final date = (b['dateLabel'] ?? b['date'] ?? '').toString().trim();
-  final time = (b['time'] ?? '').toString().trim();
-  final barber = (b['barberName'] ?? '').toString().trim().toLowerCase();
+  final date = _normalizeDateShared((b['dateLabel'] ?? b['date'] ?? '').toString());
+  final time = _normalizeTimeShared((b['time'] ?? '').toString());
+  final barber = _normalizeNameShared((b['barberName'] ?? '').toString());
 
   String itemsSig = '';
   if (b['items'] is List && (b['items'] as List).isNotEmpty) {
     itemsSig = (b['items'] as List)
         .whereType()
-                .map((it) => '${(it['name'] ?? '').toString().trim().toLowerCase()}')
+        .map((it) => _normalizeNameShared((it['name'] ?? '').toString()))
+        .where((s) => s.isNotEmpty)
         .join('|');
-  } else {
-    itemsSig = (b['serviceName'] ?? b['service'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
+  }
+  if (itemsSig.isEmpty) {
+    itemsSig = _normalizeNameShared(
+      (b['serviceName'] ?? b['service'] ?? '').toString(),
+    );
   }
 
   if (client.isEmpty && phone.isEmpty && date.isEmpty && time.isEmpty) {
     return 'fb:$firebaseKey';
   }
 
-  return 'slot:$client|$phone|$date|$time|$barber|$itemsSig';
+  final identityPart = phone.isNotEmpty ? phone : client;
+  return 'slot:$identityPart|$client|$date|$time|$barber|$itemsSig';
 }
-
 int _bookingStatusPriority(Map b) {
   final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
   if (st == 'concluído' || st == 'concluido') return 4;
@@ -245,8 +291,8 @@ int _bookingStatusPriority(Map b) {
   return 0;
 }
 
-List _deduplicateBookingsMap(Map decoded) {
-  final Map<String, Map> byDedupe = {};
+List> _deduplicateBookingsMap(Map decoded) {
+  final Map<String, Map<String, dynamic>> byDedupe = {};
 
   decoded.forEach((key, val) {
     if (val is! Map) return;
@@ -258,30 +304,30 @@ List _deduplicateBookingsMap(Map decoded) {
     final existing = byDedupe[dKey];
 
     if (existing == null) {
+      item['_mergedFirebaseKeys'] = <String>[k];
       byDedupe[dKey] = item;
     } else {
       final prevPrio = _bookingStatusPriority(existing);
       final currPrio = _bookingStatusPriority(item);
-      final prevCreated = (existing['createdAt'] ?? '').toString();
-      final currCreated = (item['createdAt'] ?? '').toString();
+      final prevUpdated =
+          (existing['updatedAt'] ?? existing['createdAt'] ?? '').toString();
+      final currUpdated =
+          (item['updatedAt'] ?? item['createdAt'] ?? '').toString();
 
       final bool currentIsBetter = currPrio > prevPrio ||
-          (currPrio == prevPrio && currCreated.compareTo(prevCreated) > 0);
+          (currPrio == prevPrio && currUpdated.compareTo(prevUpdated) >= 0);
+
+      final mergedKeys = <String>{
+        ...((existing['_mergedFirebaseKeys'] as List?)
+                ?.map((e) => e.toString()) ??
+            [(existing['firebaseKey'] ?? '').toString()]),
+        k,
+      }.where((e) => e.isNotEmpty).toList();
 
       if (currentIsBetter) {
-        final mergedKeys = <String>{
-          ...(existing['_mergedFirebaseKeys'] as List<String>? ??
-              [(existing['firebaseKey'] ?? '').toString()]),
-          k,
-        }.where((e) => e.isNotEmpty).toList();
         item['_mergedFirebaseKeys'] = mergedKeys;
         byDedupe[dKey] = item;
       } else {
-        final mergedKeys = <String>{
-          ...(existing['_mergedFirebaseKeys'] as List<String>? ??
-              [(existing['firebaseKey'] ?? '').toString()]),
-          k,
-        }.where((e) => e.isNotEmpty).toList();
         existing['_mergedFirebaseKeys'] = mergedKeys;
       }
     }
@@ -293,7 +339,6 @@ List _deduplicateBookingsMap(Map decoded) {
       .compareTo((a['createdAt'] ?? '').toString()));
   return result;
 }
-
 Future<void> _initNotifications() async {
   const AndroidInitializationSettings androidSettings =
       AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -354,7 +399,6 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
-
 Future<void> _upsertClientRemote({
   required String name,
   required String phone,
@@ -378,11 +422,11 @@ Future<void> _upsertClientRemote({
           if (entry.value is! Map) continue;
           final c = entry.value as Map;
           final cPhone = _normalizePhoneShared((c['phone'] ?? '').toString());
-          final cName = (c['name'] ?? '').toString().trim().toLowerCase();
+          final cName = _normalizeNameShared((c['name'] ?? '').toString());
           if ((normPhone.isNotEmpty && cPhone == normPhone) ||
               (normPhone.isEmpty &&
                   cleanName.isNotEmpty &&
-                  cName == cleanName.toLowerCase())) {
+                  cName == _normalizeNameShared(cleanName))) {
             existingKey = entry.key.toString();
             existingData = Map.from(c);
             break;
@@ -428,7 +472,6 @@ Future<void> _upsertClientRemote({
     }
   } catch (_) {}
 }
-
 bool _bgChecking = false;
 
 @pragma('vm:entry-point')
@@ -442,7 +485,7 @@ void _onStartBackground(ServiceInstance service) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedList = prefs.getStringList(kPrefKnownBookingKeys) ?? [];
-             final knownSet = savedList.toSet();
+      final knownSet = savedList.toSet();
 
       final uri = Uri.parse(
         '$kFirebaseDbUrl/bookings.json?t=${DateTime.now().millisecondsSinceEpoch}',
@@ -453,7 +496,7 @@ void _onStartBackground(ServiceInstance service) async {
         if (decoded is Map) {
           final deduped = _deduplicateBookingsMap(decoded);
           final List<String> currentSignatures = [];
-          final List brandNew = [];
+          final List> brandNew = [];
 
           for (final item in deduped) {
             final fKey = (item['firebaseKey'] ?? '').toString();
@@ -540,7 +583,6 @@ void main() async {
   await _initBackgroundService();
   runApp(const MrJoneGestaoApp());
 }
-
 class MrJoneGestaoApp extends StatelessWidget {
   const MrJoneGestaoApp({super.key});
 
@@ -589,34 +631,34 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   final TextEditingController _newPassController = TextEditingController();
   final Map<String, TextEditingController> _expControllers = {};
 
-  Map<String, Map> _expediente = {};
-  List _pauses = [];
-  List _bookings = [];
-  List _newAlerts = [];
-  List _services = [];
-  List _plans = [];
-  List _barbers = [];
-  List _clients = [];
-  List _planMembers = [];
+  Map<String, Map<String, dynamic>> _expediente = {};
+  List> _pauses = [];
+  List> _bookings = [];
+  List> _newAlerts = [];
+  List> _services = [];
+  List> _plans = [];
+  List> _barbers = [];
+  List> _clients = [];
+  List> _planMembers = [];
 
   final Set<String> _knownSignatures = {};
   bool _firstLoadDone = false;
   Timer? _pollTimer;
-
-  @override
+      @override
   void initState() {
     super.initState();
-    _services = List.from(kDefaultServices);
-    _plans = List.from(kDefaultPlans);
+    _services = kDefaultServices.map((e) => Map<String, dynamic>.from(e)).toList();
+    _plans = kDefaultPlans.map((e) => Map<String, dynamic>.from(e)).toList();
+    _barbers = kDefaultBarbers.map((e) => Map<String, dynamic>.from(e)).toList();
     _expediente = _cloneDefaultExpediente();
     _rebuildExpedienteControllers();
     _loadSavedSessionAndPass();
   }
 
-  Map<String, Map> _cloneDefaultExpediente() {
-    final Map<String, Map> copy = {};
+  Map<String, Map<String, dynamic>> _cloneDefaultExpediente() {
+    final Map<String, Map<String, dynamic>> copy = {};
     kDefaultExpediente.forEach((k, v) {
-      copy[k] = Map.from(v);
+      copy[k] = Map<String, dynamic>.from(v);
     });
     return copy;
   }
@@ -659,16 +701,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       (_) => _fetchBookings(silent: true),
     );
   }
-
-  Future<void> _loadSavedSessionAndPass() async {
+      Future<void> _loadSavedSessionAndPass() async {
     final prefs = await SharedPreferences.getInstance();
     final savedPass = prefs.getString(kPrefAdminPass);
     final wasLoggedIn = prefs.getBool(kPrefLoggedIn) ?? false;
-         final savedStep = prefs.getInt(kPrefSlotStep) ?? 15;
+    final savedStep = prefs.getInt(kPrefSlotStep) ?? 15;
     final savedExpRaw = prefs.getString(kPrefExpediente);
     final savedPausesRaw = prefs.getString(kPrefPauses);
 
-    Map<String, Map> loadedExp = _cloneDefaultExpediente();
+    Map<String, Map<String, dynamic>> loadedExp = _cloneDefaultExpediente();
     if (savedExpRaw != null && savedExpRaw.isNotEmpty) {
       try {
         final decoded = jsonDecode(savedExpRaw);
@@ -677,7 +718,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             if (v is Map && loadedExp.containsKey(k.toString())) {
               loadedExp[k.toString()] = {
                 ...loadedExp[k.toString()]!,
-                ...Map.from(v),
+                ...Map<String, dynamic>.from(v),
               };
             }
           });
@@ -685,11 +726,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       } catch (_) {}
     }
 
-    List loadedPauses = [];
+    List> loadedPauses = [];
     if (savedPausesRaw != null && savedPausesRaw.isNotEmpty) {
       try {
         final decoded = jsonDecode(savedPausesRaw);
-        if (decoded is List) loadedPauses = decoded;
+        if (decoded is List) {
+          loadedPauses = decoded
+              .whereType()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+        }
       } catch (_) {}
     }
 
@@ -742,8 +788,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
     } catch (_) {}
   }
-
-  Future<void> _fetchRemoteSettings() async {
+      Future<void> _fetchRemoteSettings() async {
     try {
       final expRes = await http.get(Uri.parse('$kFirebaseDbUrl/expediente.json'));
       if (expRes.statusCode == 200 && expRes.body != 'null') {
@@ -754,7 +799,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             if (v is Map && merged.containsKey(k.toString())) {
               merged[k.toString()] = {
                 ...merged[k.toString()]!,
-                ...Map.from(v),
+                ...Map<String, dynamic>.from(v),
               };
             }
           });
@@ -770,10 +815,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       final pausesRes = await http.get(Uri.parse('$kFirebaseDbUrl/pauses.json'));
       if (pausesRes.statusCode == 200 && pausesRes.body != 'null') {
         final decoded = jsonDecode(pausesRes.body);
-        if (decoded is List && mounted) {
-          setState(() => _pauses = decoded);
+        if (decoded is List) {
+          final listP = decoded
+              .whereType()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+          if (mounted) setState(() => _pauses = listP);
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(kPrefPauses, jsonEncode(decoded));
+          await prefs.setString(kPrefPauses, jsonEncode(listP));
         }
       }
 
@@ -837,8 +886,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   String _normalizePhone(String raw) => _normalizePhoneShared(raw);
-
-  Future<void> _upsertClientFromBooking({
+      Future<void> _upsertClientFromBooking({
     required String name,
     required String phone,
     String? bookingDate,
@@ -861,17 +909,34 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       final memRes =
           await http.get(Uri.parse('$kFirebaseDbUrl/plan_members.json'));
 
-      final List cliList = [];
-      final List memList = [];
+      final Map<String, Map<String, dynamic>> uniqueClients = {};
+      final List> memList = [];
 
       if (cliRes.statusCode == 200 && cliRes.body != 'null') {
         final d = jsonDecode(cliRes.body);
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map.from(v);
+              final item = Map<String, dynamic>.from(v);
               item['id'] = k.toString();
-              cliList.add(item);
+              final pNorm = _normalizePhone((item['phone'] ?? '').toString());
+              final nNorm = _normalizeNameShared((item['name'] ?? '').toString());
+              final cKey = pNorm.isNotEmpty ? 'ph:$pNorm' : 'nm:$nNorm';
+              if (!uniqueClients.containsKey(cKey)) {
+                uniqueClients[cKey] = item;
+              } else {
+                final prevCount =
+                    int.tryParse('${uniqueClients[cKey]!['totalBookings'] ?? 0}') ??
+                        0;
+                final currCount = int.tryParse('${item['totalBookings'] ?? 0}') ?? 0;
+                if (currCount > prevCount) {
+                  uniqueClients[cKey] = {
+                    ...uniqueClients[cKey]!,
+                    ...item,
+                    'totalBookings': currCount,
+                  };
+                }
+              }
             }
           });
         }
@@ -882,14 +947,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map.from(v);
+              final item = Map<String, dynamic>.from(v);
               item['id'] = k.toString();
               memList.add(item);
             }
-                       });
+          });
         }
       }
 
+      final cliList = uniqueClients.values.toList();
       cliList.sort((a, b) => (a['name'] ?? '')
           .toString()
           .toLowerCase()
@@ -927,8 +993,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           'Sincronizado • ${_bookings.length} marcação(ões) • ${_clients.length} cliente(s) • ${_planMembers.length} no plano';
     });
   }
-
-  Future<void> _fetchBookings({bool silent = false}) async {
+      Future<void> _fetchBookings({bool silent = false}) async {
     if (_fetchingBookings) return;
     _fetchingBookings = true;
 
@@ -948,8 +1013,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
       final res = await http.get(uri);
       if (res.statusCode == 200) {
-        final List loaded = [];
-        final List brandNew = [];
+        final List> loaded = [];
+        final List> brandNew = [];
         final Set<String> allSignatures = {};
 
         if (res.body != 'null') {
@@ -1030,22 +1095,21 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         setState(() => _loading = false);
       }
     }
-  }
-
-  Future<void> _fetchCatalog() async {
+      }
+     Future<void> _fetchCatalog() async {
     try {
       final srvRes = await http.get(Uri.parse('$kFirebaseDbUrl/services.json'));
       final plnRes = await http.get(Uri.parse('$kFirebaseDbUrl/plans.json'));
 
-      final List srvList = [];
-      final List plnList = [];
+      final List> srvList = [];
+      final List> plnList = [];
 
       if (srvRes.statusCode == 200 && srvRes.body != 'null') {
         final d = jsonDecode(srvRes.body);
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map.from(v);
+              final item = Map<String, dynamic>.from(v);
               item['id'] = k.toString();
               srvList.add(item);
             }
@@ -1053,7 +1117,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         } else if (d is List) {
           for (var i = 0; i < d.length; i++) {
             if (d[i] is Map) {
-              final item = Map.from(d[i] as Map);
+              final item = Map<String, dynamic>.from(d[i] as Map);
               item['id'] = i.toString();
               srvList.add(item);
             }
@@ -1066,7 +1130,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map.from(v);
+              final item = Map<String, dynamic>.from(v);
               item['id'] = k.toString();
               plnList.add(item);
             }
@@ -1074,7 +1138,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         } else if (d is List) {
           for (var i = 0; i < d.length; i++) {
             if (d[i] is Map) {
-              final item = Map.from(d[i] as Map);
+              final item = Map<String, dynamic>.from(d[i] as Map);
               item['id'] = i.toString();
               plnList.add(item);
             }
@@ -1084,8 +1148,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
       if (!mounted) return;
       setState(() {
-        _services = srvList.isNotEmpty ? srvList : List.from(kDefaultServices);
-        _plans = plnList.isNotEmpty ? plnList : List.from(kDefaultPlans);
+        _services = srvList.isNotEmpty
+            ? srvList
+            : kDefaultServices.map((e) => Map<String, dynamic>.from(e)).toList();
+        _plans = plnList.isNotEmpty
+            ? plnList
+            : kDefaultPlans.map((e) => Map<String, dynamic>.from(e)).toList();
       });
     } catch (_) {}
   }
@@ -1093,33 +1161,52 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   Future<void> _fetchBarbers() async {
     try {
       final res = await http.get(Uri.parse('$kFirebaseDbUrl/barbers.json'));
-      final List list = [];
+      final List> list = [];
       if (res.statusCode == 200 && res.body != 'null') {
         final d = jsonDecode(res.body);
         if (d is Map) {
           d.forEach((k, v) {
             if (v is Map) {
-              final item = Map.from(v);
+              final item = Map<String, dynamic>.from(v);
               item['id'] = k.toString();
+              final nm = _normalizeNameShared((item['name'] ?? '').toString());
+              if (nm == 'jhonny' || nm == 'mr. jone' || nm == 'mr jone') {
+                item['commission'] = 100.0;
+              } else if (nm == 'marcelo') {
+                item['commission'] =
+                    double.tryParse('${item['commission'] ?? 50.0}') ?? 50.0;
+              }
               list.add(item);
             }
           });
         } else if (d is List) {
           for (var i = 0; i < d.length; i++) {
             if (d[i] is Map) {
-              final item = Map.from(d[i] as Map);
-                             item['id'] = i.toString();
+              final item = Map<String, dynamic>.from(d[i] as Map);
+              item['id'] = i.toString();
               list.add(item);
             }
           }
         }
       }
+
+      final hasJhonny = list.any((b) =>
+          _normalizeNameShared((b['name'] ?? '').toString()) == 'jhonny');
+      final hasMarcelo = list.any((b) =>
+          _normalizeNameShared((b['name'] ?? '').toString()) == 'marcelo');
+
+      if (!hasJhonny) {
+        list.insert(0, Map<String, dynamic>.from(kDefaultBarbers[0]));
+      }
+      if (!hasMarcelo) {
+        list.add(Map<String, dynamic>.from(kDefaultBarbers[1]));
+      }
+
       if (!mounted) return;
       setState(() => _barbers = list);
     } catch (_) {}
   }
-
-  DateTime? _parseDateString(String raw) {
+     DateTime? _parseDateString(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
     final slash = clean.split('/');
@@ -1166,14 +1253,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return names[(dt.weekday - 1).clamp(0, 6)];
   }
 
-  Map? _findPlanMember({String? clientName, String? clientPhone}) {
+  Map<String, dynamic>? _findPlanMember({String? clientName, String? clientPhone}) {
     final normPhone = _normalizePhone(clientPhone ?? '');
-    final cleanName = (clientName ?? '').trim().toLowerCase();
+    final cleanName = _normalizeNameShared(clientName ?? '');
 
     for (final m in _planMembers) {
-      if (m is! Map) continue;
       final mPhone = _normalizePhone((m['phone'] ?? '').toString());
-      final mName = (m['clientName'] ?? '').toString().trim().toLowerCase();
+      final mName = _normalizeNameShared((m['clientName'] ?? '').toString());
 
       if (normPhone.isNotEmpty && mPhone.isNotEmpty && normPhone == mPhone) {
         return m;
@@ -1194,8 +1280,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final expiry = DateTime(expDt.year, expDt.month, expDt.day);
     return !expiry.isBefore(today);
   }
-
-  List _allowedCatalogOptions({String? clientName, String? clientPhone}) {
+      List> _allowedCatalogOptions({
+    String? clientName,
+    String? clientPhone,
+  }) {
     final member = _findPlanMember(
       clientName: clientName,
       clientPhone: clientPhone,
@@ -1204,16 +1292,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     if (member != null) {
       if (_isPlanMemberValid(member)) {
         final assignedPlanName =
-            (member['planName'] ?? '').toString().trim().toLowerCase();
-        final List planOnly = [];
+            _normalizeNameShared((member['planName'] ?? '').toString());
+        final List> planOnly = [];
 
         for (final p in _plans) {
-          if (p is! Map) continue;
           final pName = (p['name'] ?? '').toString();
+          final pNorm = _normalizeNameShared(pName);
           if (assignedPlanName.isEmpty ||
-              pName.toLowerCase() == assignedPlanName ||
-              pName.toLowerCase().contains(assignedPlanName) ||
-              assignedPlanName.contains(pName.toLowerCase())) {
+              pNorm == assignedPlanName ||
+              pNorm.contains(assignedPlanName) ||
+              assignedPlanName.contains(pNorm)) {
             planOnly.add({
               'name': pName,
               'price': double.tryParse('${p['price'] ?? 0}') ?? 0.0,
@@ -1240,9 +1328,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           }
         ];
       } else {
-        final List avulsosOnly = [];
+        final List> avulsosOnly = [];
         for (final s in _services) {
-          if (s is! Map) continue;
           avulsosOnly.add({
             'name': (s['name'] ?? '').toString(),
             'price': double.tryParse('${s['price'] ?? 0}') ?? 0.0,
@@ -1256,7 +1343,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
 
-    final List all = [];
+    final List> all = [];
     for (final s in _services) {
       all.add({
         'name': (s['name'] ?? '').toString(),
@@ -1278,351 +1365,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     }
     return all;
-  }
-
-  Future<void> _saveManualClient({
-    String? existingId,
-    required String name,
-    required String phone,
-  }) async {
-    final cleanName = name.trim();
-    final normPhone = _normalizePhone(phone);
-    if (cleanName.isEmpty) return;
-
-    final Map<String, dynamic> payload = {
-      'name': cleanName,
-      'phone': normPhone.isNotEmpty ? normPhone : phone.trim(),
-      'updatedAt': DateTime.now().toIso8601String(),
-    };
-
-    if (existingId != null && existingId.isNotEmpty) {
-      await http.patch(
-        Uri.parse('$kFirebaseDbUrl/clients/$existingId.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      );
-    } else {
-      payload['createdAt'] = DateTime.now().toIso8601String();
-      payload['totalBookings'] = 0;
-      await http.post(
-        Uri.parse('$kFirebaseDbUrl/clients.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      );
-    }
-    await _fetchClientsAndPlanMembers();
-  }
-
-  Future<void> _deleteClient(String id) async {
-    if (id.isEmpty) return;
-    await http.delete(Uri.parse('$kFirebaseDbUrl/clients/$id.json'));
-    await _fetchClientsAndPlanMembers();
-  }
-
-  Future<void> _savePlanMember({
-    String? existingId,
-    required String clientName,
-    required String phone,
-    required String planName,
-    required double planPrice,
-    required int duration,
-    required int sessionsPerMonth,
-    required String expiresAt,
-    required bool active,
-  }) async {
-          final cleanName = clientName.trim();
-    final normPhone = _normalizePhone(phone);
-    if (cleanName.isEmpty) return;
-
-    final Map<String, dynamic> payload = {
-      'clientName': cleanName,
-      'phone': normPhone.isNotEmpty ? normPhone : phone.trim(),
-      'planName': planName.trim(),
-      'planPrice': planPrice,
-      'duration': duration <= 0 ? 40 : duration,
-      'sessionsPerMonth': sessionsPerMonth <= 0 ? 4 : sessionsPerMonth,
-      'expiresAt': expiresAt.trim(),
-      'active': active,
-      'restrictToPlanOnly': true,
-      'updatedAt': DateTime.now().toIso8601String(),
-    };
-
-    if (existingId != null && existingId.isNotEmpty) {
-      await http.patch(
-        Uri.parse('$kFirebaseDbUrl/plan_members/$existingId.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      );
-    } else {
-      payload['createdAt'] = DateTime.now().toIso8601String();
-      await http.post(
-        Uri.parse('$kFirebaseDbUrl/plan_members.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      );
-    }
-
-    await _upsertClientFromBooking(
-      name: cleanName,
-      phone: normPhone.isNotEmpty ? normPhone : phone.trim(),
-      incrementCount: false,
-    );
-    await _fetchClientsAndPlanMembers();
-  }
-
-  Future<void> _deletePlanMember(String id) async {
-    if (id.isEmpty) return;
-    await http.delete(Uri.parse('$kFirebaseDbUrl/plan_members/$id.json'));
-    await _fetchClientsAndPlanMembers();
-  }
-
-  Future<void> _openClientDialog({Map? client}) async {
-    final nameCtrl =
-        TextEditingController(text: (client?['name'] ?? '').toString());
-    final phoneCtrl =
-        TextEditingController(text: (client?['phone'] ?? '').toString());
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF141417),
-        title: Text(
-          client == null ? 'Novo Cliente' : 'Editar Cliente',
-          style: const TextStyle(color: Color(0xFFF3D97E)),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Nome do Cliente'),
-            ),
-            TextField(
-              controller: phoneCtrl,
-              keyboardType: TextInputType.phone,
-              decoration:
-                  const InputDecoration(labelText: 'Telefone / WhatsApp'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD4AF37),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () async {
-              final name = nameCtrl.text.trim();
-              if (name.isEmpty) return;
-              Navigator.pop(ctx);
-              await _saveManualClient(
-                existingId: client?['id']?.toString(),
-                name: name,
-                phone: phoneCtrl.text,
-              );
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openPlanMemberDialog({
-    Map? existingMember,
-    String? prefillName,
-    String? prefillPhone,
-  }) async {
-    final nameCtrl = TextEditingController(
-      text: (existingMember?['clientName'] ?? prefillName ?? '').toString(),
-    );
-    final phoneCtrl = TextEditingController(
-      text: (existingMember?['phone'] ?? prefillPhone ?? '').toString(),
-    );
-
-    final defaultExpiry = DateTime.now().add(const Duration(days: 30));
-    final defExpStr = _formatDateBR(defaultExpiry);
-    final expiryCtrl = TextEditingController(
-      text: (existingMember?['expiresAt'] ?? defExpStr).toString(),
-    );
-
-    int selectedPlanIdx = 0;
-    if (_plans.isNotEmpty && existingMember != null) {
-      final existingName =
-          (existingMember['planName'] ?? '').toString().trim().toLowerCase();
-      for (var i = 0; i < _plans.length; i++) {
-        final pName = (_plans[i]['name'] ?? '').toString().trim().toLowerCase();
-        if (pName == existingName ||
-            pName.contains(existingName) ||
-            existingName.contains(pName)) {
-          selectedPlanIdx = i;
-          break;
-        }
       }
-    }
-
-    String selectedPlanName = _plans.isNotEmpty
-        ? (_plans[selectedPlanIdx]['name'] ?? 'Plano Mensal').toString()
-        : (existingMember?['planName'] ?? 'Plano Mensal').toString();
-    double selectedPlanPrice = _plans.isNotEmpty
-        ? (double.tryParse('${_plans[selectedPlanIdx]['price'] ?? 0}') ?? 0)
-        : (double.tryParse('${existingMember?['planPrice'] ?? 0}') ?? 0);
-    int selectedDuration = _plans.isNotEmpty
-        ? (int.tryParse('${_plans[selectedPlanIdx]['duration'] ?? 40}') ?? 40)
-        : (int.tryParse('${existingMember?['duration'] ?? 40}') ?? 40);
-    int selectedSessions = _plans.isNotEmpty
-        ? (int.tryParse(
-                '${_plans[selectedPlanIdx]['sessionsPerMonth'] ?? 4}') ??
-            4)
-        : (int.tryParse('${existingMember?['sessionsPerMonth'] ?? 4}') ?? 4);
-    bool active = existingMember?['active'] != false;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setLocal) => AlertDialog(
-          backgroundColor: const Color(0xFF141417),
-          title: Text(
-            existingMember == null
-                ? 'Adicionar Pessoa ao Plano'
-                : 'Editar Membro do Plano',
-            style: const TextStyle(color: Color(0xFFF3D97E)),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'Nome do Cliente'),
-                ),
-                TextField(
-                  controller: phoneCtrl,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Telefone / WhatsApp',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                if (_plans.isNotEmpty)
-                  DropdownButtonFormField<int>(
-                    isExpanded: true,
-                    value: selectedPlanIdx,
-                    dropdownColor: const Color(0xFF1B1B20),
-                    decoration: const InputDecoration(labelText: 'Plano Mensal'),
-                    items: [
-                      for (var i = 0; i < _plans.length; i++)
-                        DropdownMenuItem<int>(
-                          value: i,
-                          child: Text(
-                            '${_plans[i]['name']} (R\$ ${_plans[i]['price']})',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    onChanged: (idx) {
-                      if (idx == null) return;
-                      final p = _plans[idx] as Map;
-                      setLocal(() {
-                        selectedPlanIdx = idx;
-                        selectedPlanName = (p['name'] ?? '').toString();
-                        selectedPlanPrice =
-                            double.tryParse('${p['price'] ?? 0}') ?? 0;
-                        selectedDuration =
-                            int.tryParse('${p['duration'] ?? 40}') ?? 40;
-                        selectedSessions =
-                            int.tryParse('${p['sessionsPerMonth'] ?? 4}') ??
-                                4;
-                      });
-                    },
-                  ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: expiryCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Vencimento (dd/mm/aaaa)',
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                                            icon: const Icon(Icons.calendar_today,
-                          color: Color(0xFFD4AF37)),
-                      onPressed: () async {
-                        final initDt =
-                            _parseDateString(expiryCtrl.text) ?? defaultExpiry;
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: initDt,
-                          firstDate: DateTime(2024),
-                          lastDate: DateTime(2030),
-                        );
-                        if (picked != null) {
-                          setLocal(() {
-                            expiryCtrl.text = _formatDateBR(picked);
-                          });
-                        }
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Plano ativo (quando vencer, passa a avulso)',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  value: active,
-                  activeColor: const Color(0xFFD4AF37),
-                  onChanged: (v) => setLocal(() => active = v),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFD4AF37),
-                foregroundColor: Colors.black,
-              ),
-              onPressed: () async {
-                final name = nameCtrl.text.trim();
-                if (name.isEmpty) return;
-                Navigator.pop(ctx);
-                await _savePlanMember(
-                  existingId: existingMember?['id']?.toString(),
-                  clientName: name,
-                  phone: phoneCtrl.text,
-                  planName: selectedPlanName.isEmpty
-                      ? 'Plano Mensal'
-                      : selectedPlanName,
-                  planPrice: selectedPlanPrice,
-                  duration: selectedDuration,
-                  sessionsPerMonth: selectedSessions,
-                  expiresAt: expiryCtrl.text,
-                  active: active,
-                );
-              },
-              child: const Text('Guardar no Plano'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  int? _timeToMinutes(String raw) {
+      int? _timeToMinutes(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
     final parts = clean.split(':');
@@ -1650,10 +1394,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   int _bookingDurationMinutes(Map b) {
     if (b['items'] is List && (b['items'] as List).isNotEmpty) {
       int total = 0;
-      for (final it in b['items'] as List) {
-        if (it is Map) {
-          total += int.tryParse('${it['duration'] ?? 30}') ?? 30;
-        }
+      for (final it in (b['items'] as List).whereType()) {
+        total += int.tryParse('${it['duration'] ?? 30}') ?? 30;
       }
       if (total > 0) return total;
     }
@@ -1661,8 +1403,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   bool _sameBarberName(String? a, String? b) {
-    final x = (a ?? '').trim().toLowerCase();
-    final y = (b ?? '').trim().toLowerCase();
+    final x = _normalizeNameShared(a ?? '');
+    final y = _normalizeNameShared(b ?? '');
     if (x.isEmpty || y.isEmpty) return true;
     return x == y;
   }
@@ -1672,7 +1414,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  Map? _findBookingAtSlot(
+  Map<String, dynamic>? _findBookingAtSlot(
     DateTime day,
     int slotMin, {
     String barberFilter = 'TODOS',
@@ -1711,12 +1453,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return null;
   }
 
-  Map? _findPauseAtSlot(DateTime day, int slotMin) {
+  Map<String, dynamic>? _findPauseAtSlot(DateTime day, int slotMin) {
     final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
     final int slotEnd = slotMin + step;
 
     for (final p in _pauses) {
-      if (p is! Map) continue;
       final pDt = _parseDateString((p['date'] ?? '').toString());
       if (pDt != null && !_isSameDay(pDt, day)) continue;
 
@@ -1734,109 +1475,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     return null;
   }
-
-  List<String> _getAvailableSlots({
-    required String dateStr,
-    required String barberName,
-    required int serviceDurationMin,
-    String? ignoreBookingKey,
-  }) {
-    final dt = _parseDateString(dateStr);
-    if (dt == null) return [];
-
-    final expKey = _expedienteKeyForDate(dt);
-    final dayExp = _expediente[expKey];
-    if (dayExp == null || dayExp['ativo'] != true) {
-      return [];
-    }
-
-    final List<List<int>> windows = [];
-    final t1Start = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
-    final t1End = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
-    if (t1Start != null && t1End != null && t1End > t1Start) {
-      windows.add([t1Start, t1End]);
-    }
-
-    if (dayExp['t2Ativo'] == true) {
-      final t2Start =
-          _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
-      final t2End = _timeToMinutes((dayExp['t2Fim'] ?? '19:30').toString());
-      if (t2Start != null && t2End != null && t2End > t2Start) {
-        windows.add([t2Start, t2End]);
-      }
-    }
-
-    final List<List<int>> blockedIntervals = [];
-    final targetDay = DateTime(dt.year, dt.month, dt.day);
-
-    for (final p in _pauses) {
-      if (p is! Map) continue;
-      final pDt = _parseDateString((p['date'] ?? '').toString());
-      if (pDt != null &&
-          DateTime(pDt.year, pDt.month, pDt.day) != targetDay) {
-                  continue;
-      }
-      final ps = _timeToMinutes((p['start'] ?? '').toString());
-      final pe = _timeToMinutes((p['end'] ?? '').toString());
-      if (ps != null && pe != null && pe > ps) {
-        blockedIntervals.add([ps, pe]);
-      }
-    }
-
-    for (final b in _bookings) {
-      final bKey = (b['firebaseKey'] ?? '').toString();
-      if (ignoreBookingKey != null &&
-          ignoreBookingKey.isNotEmpty &&
-          bKey == ignoreBookingKey) {
-        continue;
-      }
-
-      final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado') continue;
-
-      final bDt = _parseBookingDate(b);
-      if (bDt == null) continue;
-      if (DateTime(bDt.year, bDt.month, bDt.day) != targetDay) continue;
-
-      if (!_sameBarberName(b['barberName']?.toString(), barberName)) continue;
-
-      final startMin = _timeToMinutes((b['time'] ?? '').toString());
-      if (startMin == null) continue;
-      final dur = _bookingDurationMinutes(b);
-      blockedIntervals.add([startMin, startMin + dur]);
-    }
-
-    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
-    final int neededDur = serviceDurationMin <= 0 ? 30 : serviceDurationMin;
-    final List<String> available = [];
-
-    for (final win in windows) {
-      final int winStart = win[0];
-      final int winEnd = win[1];
-
-      for (int candidate = winStart;
-          candidate + neededDur <= winEnd;
-          candidate += step) {
-        final int candidateEnd = candidate + neededDur;
-        bool overlaps = false;
-        for (final blk in blockedIntervals) {
-          final int blkStart = blk[0];
-          final int blkEnd = blk[1];
-          if (candidate < blkEnd && candidateEnd > blkStart) {
-            overlaps = true;
-            break;
-          }
-        }
-        if (!overlaps) {
-          available.add(_minutesToTime(candidate));
-        }
-      }
-    }
-
-    return available;
-  }
-
-  bool _isCompletedStatus(Map b) {
+      bool _isCompletedStatus(Map b) {
     final st = (b['status'] ?? '').toString().trim().toLowerCase();
     return st == 'concluído' || st == 'concluido';
   }
@@ -1870,6 +1509,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
+    if (period == 'diario') {
+      return dt.year == today.year &&
+          dt.month == today.month &&
+          dt.day == today.day;
+    }
+
     if (period == 'mensal') {
       return dt.year == today.year && dt.month == today.month;
     }
@@ -1880,18 +1525,22 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   double _getBarberCommissionPct(String? barberName) {
-    final target = (barberName ?? '').trim().toLowerCase();
+    final target = _normalizeNameShared(barberName ?? '');
+    if (target == 'jhonny' || target == 'mr. jone' || target == 'mr jone') {
+      return 100.0;
+    }
+    if (target == 'marcelo') {
+      return 50.0;
+    }
     if (target.isNotEmpty) {
       for (final b in _barbers) {
-        if (b is Map) {
-          final bName = (b['name'] ?? '').toString().trim().toLowerCase();
-          if (bName == target) {
-            return double.tryParse('${b['commission'] ?? 50}') ?? 50;
-          }
+        final bName = _normalizeNameShared((b['name'] ?? '').toString());
+        if (bName == target) {
+          return double.tryParse('${b['commission'] ?? 50.0}') ?? 50.0;
         }
       }
     }
-    return 50;
+    return 50.0;
   }
 
   double _calcReceitaItem(Map item) {
@@ -1909,10 +1558,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     double sum = 0;
     final items = b['items'];
     if (items is List) {
-      for (final it in items) {
-        if (it is Map) {
-          sum += _calcReceitaItem(it);
-        }
+      for (final it in items.whereType()) {
+        sum += _calcReceitaItem(it);
       }
     }
     if (sum == 0) {
@@ -1939,66 +1586,64 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return true;
   }
 
-  double _totalReceita({bool onlyCompleted = true}) {
-    double sum = 0;
-    for (final b in _bookings) {
-      if (_shouldCountBooking(b, onlyCompleted: onlyCompleted)) {
-        sum += _calcBookingValue(b);
-      }
-    }
-    return sum;
-  }
-
-  double _totalComissoes({bool onlyCompleted = true}) {
-    double sum = 0;
-    for (final b in _bookings) {
-      if (_shouldCountBooking(b, onlyCompleted: onlyCompleted)) {
-        sum += _calcBookingCommission(b);
-      }
-    }
-    return sum;
-  }
-
-  Map<String, dynamic> _barberStats(
-    String barberName, {
-    String? period,
+  Map<String, double> _periodFinancialSummary(
+    String period, {
     bool onlyCompleted = true,
   }) {
-    final target = barberName.trim().toLowerCase();
-    double produced = 0;
-    double commission = 0;
-    int count = 0;
-    final commPct = _getBarberCommissionPct(barberName);
-    final List matchedBookings = [];
-
-    if (target.isNotEmpty) {
-      for (final b in _bookings) {
-        final bName = (b['barberName'] ?? '').toString().trim().toLowerCase();
-        if (bName != target) continue;
-        if (!_shouldCountBooking(b, onlyCompleted: onlyCompleted)) continue;
-        if (period != null && !_matchesPeriod(b, period)) continue;
-
-        final val = _calcBookingValue(b);
-        final comm = val * (commPct / 100.0);
-        produced += val;
-        commission += comm;
-        count++;
-        matchedBookings.add(b);
-      }
+    double receita = 0;
+    double comissao = 0;
+    for (final b in _bookings) {
+      if (!_shouldCountBooking(b, onlyCompleted: onlyCompleted)) continue;
+      if (!_matchesPeriod(b, period)) continue;
+      final r = _calcBookingValue(b);
+      final c = _calcBookingCommission(b);
+      receita += r;
+      comissao += c;
     }
-
     return {
-      'produced': produced,
-      'commission': commission,
-      'count': count,
-      'bookings': matchedBookings,
+      'receita': receita,
+      'comissao': comissao,
+      'liquido': receita - comissao,
     };
   }
-      String _buildServiceSummary(Map b) {
+      List<String> _allKeysForBooking(Map b) {
+    final list = <String>[];
+    final mainKey = (b['firebaseKey'] ?? '').toString();
+    if (mainKey.isNotEmpty) list.add(mainKey);
+    if (b['_mergedFirebaseKeys'] is List) {
+      for (final mk in (b['_mergedFirebaseKeys'] as List)) {
+        if (mk.toString().isNotEmpty) list.add(mk.toString());
+      }
+    }
+    return list.toSet().toList();
+  }
+
+  Future<void> _patchBookingKeys(
+    List<String> keys,
+    Map<String, dynamic> patch,
+  ) async {
+    final cleanKeys = keys.where((k) => k.isNotEmpty).toSet().toList();
+    if (cleanKeys.isEmpty) return;
+
+    final primaryKey = cleanKeys.first;
+    await http.patch(
+      Uri.parse('$kFirebaseDbUrl/bookings/$primaryKey.json'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(patch),
+    );
+
+    if (cleanKeys.length > 1) {
+      for (final extraKey in cleanKeys.skip(1)) {
+        await http.delete(Uri.parse('$kFirebaseDbUrl/bookings/$extraKey.json'));
+      }
+    }
+  }
+
+  String _buildServiceSummary(Map b) {
     final List<String> srvNames = [];
     if (b['items'] is List) {
-      for (final it in b['items'] as List) {
-        if (it is Map && it['name'] != null) {
+      for (final it in (b['items'] as List).whereType()) {
+        if (it['name'] != null) {
           srvNames.add(it['name'].toString());
         }
       }
@@ -2055,1870 +1700,70 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
     }
   }
-
-  Future<void> _patchBookingKeys(List<String> keys, Map<String, dynamic> patch) async {
-    for (final k in keys.toSet()) {
-      if (k.isEmpty) continue;
-      await http.patch(
-        Uri.parse('$kFirebaseDbUrl/bookings/$k.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(patch),
-      );
-    }
-  }
-
-  List<String> _allKeysForBooking(Map b) {
-    final list = <String>[];
-    final mainKey = (b['firebaseKey'] ?? '').toString();
-    if (mainKey.isNotEmpty) list.add(mainKey);
-    if (b['_mergedFirebaseKeys'] is List) {
-      for (final mk in b['_mergedFirebaseKeys'] as List) {
-        if (mk.toString().isNotEmpty) list.add(mk.toString());
-      }
-    }
-    return list.toSet().toList();
-  }
-
-  Future<void> _concluirAtendimento(Map b) async {
-    final keys = _allKeysForBooking(b);
-    final firebaseKey = (b['firebaseKey'] ?? '').toString();
-    if (keys.isEmpty) return;
-
-    final double comm = _calcBookingCommission(b);
-    final String client = (b['clientName'] ?? 'Cliente').toString();
-    final String barber = (b['barberName'] ?? 'Barbeiro').toString();
-
-    setState(() {
-      final idx = _bookings.indexWhere(
-        (item) => (item['firebaseKey'] ?? '').toString() == firebaseKey,
-      );
-      if (idx != -1) {
-        _bookings[idx] = {
-          ..._bookings[idx],
-          'status': 'concluído',
-          'attended': true,
-          'completedAt': DateTime.now().toIso8601String(),
-        };
-      }
-    });
-
-    await _patchBookingKeys(keys, {
-      'status': 'concluído',
-      'attended': true,
-      'completedAt': DateTime.now().toIso8601String(),
-    });
-
-    await _fetchBookings(silent: true);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '$client concluído! Comissão de R\$ ${comm.toStringAsFixed(2)} somada para $barber.',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _marcarNaoConcluido(Map b) async {
-    final keys = _allKeysForBooking(b);
-    final firebaseKey = (b['firebaseKey'] ?? '').toString();
-    if (keys.isEmpty) return;
-
-    final String client = (b['clientName'] ?? 'Cliente').toString();
-
-    setState(() {
-      final idx = _bookings.indexWhere(
-        (item) => (item['firebaseKey'] ?? '').toString() == firebaseKey,
-      );
-      if (idx != -1) {
-        _bookings[idx] = {
-          ..._bookings[idx],
-          'status': 'não concluído',
-          'attended': false,
-          'completedAt': null,
-        };
-      }
-    });
-
-    await _patchBookingKeys(keys, {
-      'status': 'não concluído',
-      'attended': false,
-      'completedAt': null,
-    });
-
-    await _fetchBookings(silent: true);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '$client marcado como não concluído (mantido na agenda, fora do caixa).',
-        ),
-      ),
-    );
-  }
-
-  Future<void> _updateStatus(String firebaseKey, String newStatus) async {
-    if (firebaseKey.isEmpty) return;
-    final found = _bookings.cast().firstWhere(
-          (item) => (item?['firebaseKey'] ?? '').toString() == firebaseKey,
-          orElse: () => null,
-        );
-    final keys = found != null ? _allKeysForBooking(found) : [firebaseKey];
-    await _patchBookingKeys(keys, {'status': newStatus});
-    await _fetchBookings(silent: true);
-  }
-
-  Future<void> _deleteBooking(String firebaseKey) async {
-    if (firebaseKey.isEmpty) return;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF141417),
-        title: const Text(
-          'Excluir Agendamento',
-          style: TextStyle(color: Color(0xFFF3D97E)),
-        ),
-        content: const Text(
-          'Deseja excluir permanentemente este agendamento?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    final found = _bookings.cast().firstWhere(
-          (item) => (item?['firebaseKey'] ?? '').toString() == firebaseKey,
-          orElse: () => null,
-        );
-    final keys = found != null ? _allKeysForBooking(found) : [firebaseKey];
-
-    setState(() {
-      _bookings.removeWhere(
-        (item) => (item['firebaseKey'] ?? '').toString() == firebaseKey,
-      );
-    });
-         for (final k in keys) {
-      await http.delete(Uri.parse('$kFirebaseDbUrl/bookings/$k.json'));
-    }
-    await _fetchBookings(silent: true);
-  }
-
-  Future<void> _openManualEntryDialog({
-    String? presetDateStr,
-    String? presetTimeStr,
-    String? presetBarberName,
-  }) async {
-    final now = DateTime.now();
-    final hh = now.hour.toString().padLeft(2, '0');
-    final mm = now.minute.toString().padLeft(2, '0');
-    final defaultDateStr = presetDateStr ?? _formatDateBR(now);
-    final defaultTimeStr = presetTimeStr ?? '$hh:$mm';
-
-    final clientCtrl = TextEditingController(text: 'Cliente Balcão');
-    final phoneCtrl = TextEditingController(text: '');
-    final dateCtrl = TextEditingController(text: defaultDateStr);
-    final timeCtrl = TextEditingController(text: defaultTimeStr);
-
-    int selectedBarberIdx = 0;
-    if (presetBarberName != null && _barbers.isNotEmpty) {
-      for (var i = 0; i < _barbers.length; i++) {
-        if ((_barbers[i]['name'] ?? '').toString().trim().toLowerCase() ==
-            presetBarberName.trim().toLowerCase()) {
-          selectedBarberIdx = i;
-          break;
-        }
-      }
-    }
-
-    String selectedBarberName = presetBarberName ??
-        (_barbers.isNotEmpty
-            ? (_barbers[selectedBarberIdx]['name'] ?? 'Mr. Jone').toString()
-            : 'Mr. Jone');
-    double selectedCommPct = _getBarberCommissionPct(selectedBarberName);
-
-    int selectedOptionIdx = 0;
-    String lastOptionsSignature = '';
-    Map selectedItem = {
-      'name': 'Corte Degradê / Disfarçado / Navalhado',
-      'price': 40.0,
-      'duration': 40,
-      'isPlan': false,
-      'sessionsPerMonth': 1,
-    };
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setLocal) {
-          final member = _findPlanMember(
-            clientName: clientCtrl.text,
-            clientPhone: phoneCtrl.text,
-          );
-          final bool hasMemberRecord = member != null;
-          final bool isValidPlanMember =
-              member != null && _isPlanMemberValid(member);
-          final bool isExpiredPlanMember =
-              member != null && !_isPlanMemberValid(member);
-
-          final List allowedOptions = _allowedCatalogOptions(
-            clientName: clientCtrl.text,
-            clientPhone: phoneCtrl.text,
-          );
-
-          final optionsSig = allowedOptions
-              .map((o) => '${o['name']}|${o['isPlan']}|${o['price']}')
-              .join(';;');
-
-          if (optionsSig != lastOptionsSignature) {
-            lastOptionsSignature = optionsSig;
-            selectedOptionIdx = 0;
-            if (allowedOptions.isNotEmpty) {
-              selectedItem = Map.from(allowedOptions.first as Map);
-            }
-          } else if (allowedOptions.isNotEmpty &&
-              selectedOptionIdx < allowedOptions.length) {
-            selectedItem = Map.from(allowedOptions[selectedOptionIdx] as Map);
-          }
-
-          if (_barbers.isNotEmpty && selectedBarberIdx < _barbers.length) {
-            selectedBarberName =
-                (_barbers[selectedBarberIdx]['name'] ?? 'Mr. Jone').toString();
-            selectedCommPct =
-                double.tryParse('${_barbers[selectedBarberIdx]['commission'] ?? 50}') ??
-                    50;
-          }
-
-          return AlertDialog(
-            backgroundColor: const Color(0xFF141417),
-            title: const Text(
-              'Registar Atendimento Manual',
-              style: TextStyle(color: Color(0xFFF3D97E)),
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: clientCtrl,
-                    onChanged: (_) => setLocal(() {}),
-                    decoration:
-                        const InputDecoration(labelText: 'Nome do Cliente'),
-                  ),
-                  TextField(
-                    controller: phoneCtrl,
-                    keyboardType: TextInputType.phone,
-                    onChanged: (_) => setLocal(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Telefone / WhatsApp',
-                    ),
-                  ),
-                  if (isValidPlanMember) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF231D09),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFD4AF37)),
-                      ),
-                      child: Text(
-                        'PLANO ATIVO (Validade: ${member['expiresAt'] ?? 'Ativo'})\nSó pode marcar na opção do plano (avulsos bloqueados).',
-                        style: const TextStyle(
-                            fontSize: 11, color: Color(0xFFF3D97E)),
-                      ),
-                    ),
-                  ] else if (isExpiredPlanMember) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2B1313),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.redAccent),
-                      ),
-                      child: Text(
-                        'PLANO VENCIDO / INATIVO (Validade: ${member['expiresAt'] ?? '-'})\nPlano bloqueado: só pode marcar em SERVIÇOS AVULSOS.',
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.orangeAccent),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: dateCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Data (dd/mm/aaaa)',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: timeCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Horário (HH:MM)',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (_barbers.isNotEmpty)
-                    DropdownButtonFormField<int>(
-                      isExpanded: true,
-                      value: selectedBarberIdx,
-                      dropdownColor: const Color(0xFF1B1B20),
-                      decoration: const InputDecoration(labelText: 'Barbeiro'),
-                      items: [
-                        for (var i = 0; i < _barbers.length; i++)
-                          DropdownMenuItem<int>(
-                            value: i,
-                            child: Text(
-                              '${_barbers[i]['name']} (${_barbers[i]['commission'] ?? 50}%)',
-                            ),
-                          ),
-                      ],
-                      onChanged: (idx) {
-                        if (idx == null) return;
-                        setLocal(() {
-                          selectedBarberIdx = idx;
-                          selectedBarberName =
-                              (_barbers[idx]['name'] ?? 'Mr. Jone').toString();
-                          selectedCommPct = double.tryParse(
-                                  '${_barbers[idx]['commission'] ?? 50}') ??
-                              50;
-                        });
-                      },
-                    ),
-                  const SizedBox(height: 8),
-                  if (allowedOptions.isNotEmpty)
-                    DropdownButtonFormField<int>(
-                      isExpanded: true,
-                      value: selectedOptionIdx,
-                      dropdownColor: const Color(0xFF1B1B20),
-                      decoration: InputDecoration(
-                        labelText: isValidPlanMember
-                            ? 'Apenas Planos (Ativo)'
-                            : (isExpiredPlanMember
-                                ? 'Apenas Avulsos (Plano Vencido)'
-                                : 'Serviço Avulso ou Plano'),
-                      ),
-                      items: [
-                        for (var i = 0; i < allowedOptions.length; i++)
-                          DropdownMenuItem<int>(
-                            value: i,
-                            child: Text(
-                              '${allowedOptions[i]['name']} • R\$ ${allowedOptions[i]['price']}',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                                                ],
-                      onChanged: (idx) {
-                        if (idx == null) return;
-                        setLocal(() {
-                          selectedOptionIdx = idx;
-                          selectedItem = Map.from(allowedOptions[idx] as Map);
-                        });
-                      },
-                    ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Receita sessão: R\$ ${_calcReceitaItem(selectedItem).toStringAsFixed(2)} • Comissão (${selectedCommPct.toStringAsFixed(0)}%): R\$ ${_calcComissaoItem(selectedItem, selectedCommPct).toStringAsFixed(2)}',
-                    style:
-                        const TextStyle(fontSize: 12, color: Colors.greenAccent),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancelar'),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD4AF37),
-                  foregroundColor: Colors.black,
-                ),
-                onPressed: () async {
-                  final bool itemIsPlan = selectedItem['isPlan'] == true;
-                  if (isValidPlanMember && !itemIsPlan) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Cliente com plano ativo: só pode marcar na opção do plano.',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-                  if (isExpiredPlanMember && itemIsPlan) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Plano vencido: só é permitido marcar em serviço avulso.',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-
-                  final dateStr = dateCtrl.text.trim().isEmpty
-                      ? defaultDateStr
-                      : dateCtrl.text.trim();
-                  final timeStr = timeCtrl.text.trim().isEmpty
-                      ? defaultTimeStr
-                      : timeCtrl.text.trim();
-                  final cName = clientCtrl.text.trim().isEmpty
-                      ? 'Cliente Balcão'
-                      : clientCtrl.text.trim();
-                  final cPhone = phoneCtrl.text.trim().isEmpty
-                      ? 'Balcão'
-                      : phoneCtrl.text.trim();
-
-                  Navigator.pop(ctx);
-
-                  await _upsertClientFromBooking(
-                    name: cName,
-                    phone: cPhone,
-                    bookingDate: dateStr,
-                    bookingTime: timeStr,
-                    incrementCount: true,
-                  );
-
-                  final manualId = 'app_${now.microsecondsSinceEpoch}';
-                  await http.post(
-                    Uri.parse('$kFirebaseDbUrl/bookings.json'),
-                    headers: {'Content-Type': 'application/json'},
-                    body: jsonEncode({
-                      'bookingId': manualId,
-                      'clientName': cName,
-                      'clientPhone': cPhone,
-                      'barberName': selectedBarberName,
-                      'dateLabel': dateStr,
-                      'date': dateStr,
-                      'time': timeStr,
-                      'status': 'confirmado',
-                      'attended': false,
-                      'completedAt': null,
-                      'isPlanMember': isValidPlanMember,
-                      'hadExpiredPlan': isExpiredPlanMember,
-                      'hasMemberRecord': hasMemberRecord,
-                      'createdAt': now.toIso8601String(),
-                      'items': [
-                        {
-                          'name': (selectedItem['name'] ?? 'Serviço').toString(),
-                          'price': double.tryParse(
-                                  '${selectedItem['price'] ?? 0}') ??
-                              0,
-                          'duration': int.tryParse(
-                                  '${selectedItem['duration'] ?? 30}') ??
-                              30,
-                          'isPlan': itemIsPlan,
-                          'sessionsPerMonth': int.tryParse(
-                                  '${selectedItem['sessionsPerMonth'] ?? 4}') ??
-                              4,
-                        }
-                      ],
-                    }),
-                  );
-                  await _fetchBookings(silent: true);
-                },
-                child: const Text('Registar'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _openEditBookingDialog(Map b) async {
-    final keys = _allKeysForBooking(b);
-    final String firebaseKey = (b['firebaseKey'] ?? '').toString();
-    if (keys.isEmpty) return;
-
-    String currentServiceName = '';
-    double currentPrice = 0;
-    int currentDuration = 30;
-    bool currentIsPlan = false;
-    int currentSessions = 4;
-
-    if (b['items'] is List && (b['items'] as List).isNotEmpty) {
-      final first = (b['items'] as List).first;
-      if (first is Map) {
-        currentServiceName = (first['name'] ?? '').toString();
-        currentPrice = double.tryParse('${first['price'] ?? 0}') ?? 0;
-        currentDuration = int.tryParse('${first['duration'] ?? 30}') ?? 30;
-        currentIsPlan = first['isPlan'] == true;
-        currentSessions = int.tryParse('${first['sessionsPerMonth'] ?? 4}') ?? 4;
-      }
-    }
-
-    final String clientName = (b['clientName'] ?? '').toString();
-    final String clientPhone =
-        (b['clientPhone'] ?? b['phone'] ?? '').toString();
-    final member =
-        _findPlanMember(clientName: clientName, clientPhone: clientPhone);
-    final bool isValidPlanMember =
-        member != null && _isPlanMemberValid(member);
-    final bool isExpiredPlanMember =
-        member != null && !_isPlanMemberValid(member);
-
-    final srvCtrl = TextEditingController(text: currentServiceName);
-    final priceCtrl =
-        TextEditingController(text: currentPrice.toStringAsFixed(2));
-    final durCtrl = TextEditingController(text: '$currentDuration');
-    final dateCtrl = TextEditingController(
-        text: (b['dateLabel'] ?? b['date'] ?? '').toString());
-    final timeCtrl = TextEditingController(text: (b['time'] ?? '').toString());
-    final barberCtrl =
-        TextEditingController(text: (b['barberName'] ?? 'Mr. Jone').toString());
-
-    String selectedStatus = (b['status'] ?? 'confirmado').toString();
-    bool sendWaAfterSave = false;
-
-    final List allowedOptions = _allowedCatalogOptions(
-      clientName: clientName,
-      clientPhone: clientPhone,
-    );
-
-    int? selectedDropdownIdx;
-    for (var i = 0; i < allowedOptions.length; i++) {
-      final optName = (allowedOptions[i]['name'] ?? '').toString().trim();
-      if (optName.toLowerCase() == srvCtrl.text.trim().toLowerCase()) {
-        selectedDropdownIdx = i;
-        break;
-      }
-    }
-
-    if (allowedOptions.isNotEmpty) {
-      if (isValidPlanMember && !currentIsPlan) {
-        final firstPlanOpt = allowedOptions.first as Map;
-        selectedDropdownIdx = 0;
-        srvCtrl.text = (firstPlanOpt['name'] ?? '').toString();
-        priceCtrl.text =
-            (double.tryParse('${firstPlanOpt['price'] ?? 0}') ?? 0)
-                .toStringAsFixed(2);
-        durCtrl.text = '${firstPlanOpt['duration'] ?? 40}';
-        currentIsPlan = true;
-        currentSessions =
-            int.tryParse('${firstPlanOpt['sessionsPerMonth'] ?? 4}') ?? 4;
-      } else if (isExpiredPlanMember && currentIsPlan) {
-        final firstAvulsoOpt = allowedOptions.first as Map;
-        selectedDropdownIdx = 0;
-        srvCtrl.text = (firstAvulsoOpt['name'] ?? '').toString();
-        priceCtrl.text =
-            (double.tryParse('${firstAvulsoOpt['price'] ?? 0}') ?? 0)
-                .toStringAsFixed(2);
-        durCtrl.text = '${firstAvulsoOpt['duration'] ?? 30}';
-        currentIsPlan = false;
-        currentSessions = 1;
-      }
-    }
-
-    Future<void> pickCustomDate() async {
-      final initialDt = _parseDateString(dateCtrl.text) ?? DateTime.now();
-      final picked = await showDatePicker(
-        context: context,
-        initialDate: initialDt,
-        firstDate: DateTime(2024),
-        lastDate: DateTime(2030),
-      );
-      if (picked != null) {
-        dateCtrl.text = _formatDateBR(picked);
-      }
-    }
-
-    Future<void> pickCustomTime() async {
-      TimeOfDay initial = const TimeOfDay(hour: 10, minute: 0);
-      final parts = timeCtrl.text.trim().split(':');
-              if (parts.length == 2) {
-        final h = int.tryParse(parts[0]);
-        final m = int.tryParse(parts[1]);
-        if (h != null && m != null && h >= 0 && h < 24 && m >= 0 && m < 60) {
-          initial = TimeOfDay(hour: h, minute: m);
-        }
-      }
-      final picked = await showTimePicker(
-        context: context,
-        initialTime: initial,
-      );
-      if (picked != null) {
-        final hh = picked.hour.toString().padLeft(2, '0');
-        final mm = picked.minute.toString().padLeft(2, '0');
-        timeCtrl.text = '$hh:$mm';
-      }
-    }
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setLocal) {
-          final int activeDur =
-              int.tryParse(durCtrl.text.trim()) ?? currentDuration;
-          final List<String> availableSlots = _getAvailableSlots(
-            dateStr: dateCtrl.text,
-            barberName: barberCtrl.text,
-            serviceDurationMin: activeDur,
-            ignoreBookingKey: firebaseKey,
-          );
-
-          return AlertDialog(
-            backgroundColor: const Color(0xFF141417),
-            title: Text(
-              'Reagendar • ${clientName.isEmpty ? 'Cliente' : clientName}',
-              style: const TextStyle(color: Color(0xFFF3D97E)),
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (isValidPlanMember)
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      margin: const EdgeInsets.only(bottom: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF231D09),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFD4AF37)),
-                      ),
-                      child: Text(
-                        'PLANO ATIVO (Validade: ${member['expiresAt'] ?? 'Ativo'})\nApenas opções do plano estão disponíveis.',
-                        style: const TextStyle(
-                            fontSize: 11, color: Color(0xFFF3D97E)),
-                      ),
-                    )
-                  else if (isExpiredPlanMember)
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      margin: const EdgeInsets.only(bottom: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2B1313),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.redAccent),
-                      ),
-                      child: Text(
-                        'PLANO VENCIDO / INATIVO (Validade: ${member['expiresAt'] ?? '-'})\nApenas serviços avulsos estão disponíveis.',
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.orangeAccent),
-                      ),
-                    ),
-                  DropdownButtonFormField<int>(
-                    isExpanded: true,
-                    value: selectedDropdownIdx,
-                    dropdownColor: const Color(0xFF1B1B20),
-                    decoration: InputDecoration(
-                      labelText: isValidPlanMember
-                          ? 'Opções do Plano (Ativo)'
-                          : (isExpiredPlanMember
-                              ? 'Serviços Avulsos (Plano Vencido)'
-                              : 'Escolher da tabela de preços'),
-                    ),
-                    items: [
-                      for (var i = 0; i < allowedOptions.length; i++)
-                        DropdownMenuItem<int>(
-                          value: i,
-                          child: Text(
-                            '${allowedOptions[i]['name']} (R\$ ${(allowedOptions[i]['price'] as double).toStringAsFixed(2)} • ${allowedOptions[i]['duration']} min)',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    onChanged: (idx) {
-                      if (idx == null) return;
-                      final opt = allowedOptions[idx];
-                      setLocal(() {
-                        selectedDropdownIdx = idx;
-                        srvCtrl.text = opt['name'].toString();
-                        priceCtrl.text =
-                            (opt['price'] as double).toStringAsFixed(2);
-                        durCtrl.text = '${opt['duration'] ?? 30}';
-                        currentIsPlan = opt['isPlan'] == true;
-                        currentSessions =
-                            int.tryParse('${opt['sessionsPerMonth'] ?? 4}') ??
-                                4;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: srvCtrl,
-                    readOnly: isValidPlanMember || isExpiredPlanMember,
-                    onChanged: (_) => setLocal(() => selectedDropdownIdx = null),
-                    decoration: const InputDecoration(
-                      labelText: 'Serviço / Plano',
-                    ),
-                  ),
-                  TextField(
-                    controller: priceCtrl,
-                    readOnly: isValidPlanMember || isExpiredPlanMember,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Valor (R\$)'),
-                  ),
-                  TextField(
-                    controller: durCtrl,
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => setLocal(() {}),
-                    decoration:
-                        const InputDecoration(labelText: 'Duração (minutos)'),
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: dateCtrl,
-                          onChanged: (_) => setLocal(() {}),
-                          decoration: const InputDecoration(
-                            labelText: 'Data (dd/mm/aaaa)',
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Escolher data',
-                        icon: const Icon(Icons.calendar_today,
-                            color: Color(0xFFD4AF37)),
-                        onPressed: () async {
-                          await pickCustomDate();
-                          setLocal(() {});
-                        },
-                      ),
-                    ],
-                  ),
-                  TextField(
-                    controller: barberCtrl,
-                    onChanged: (_) => setLocal(() {}),
-                    decoration: const InputDecoration(labelText: 'Barbeiro'),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'HORÁRIOS DISPONÍVEIS (TOQUE PARA ESCOLHER):',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFFF3D97E),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  if (availableSlots.isEmpty)
-                    const Text(
-                      'Sem horários livres para essa data/barbeiro/duração (ou dia fechado). Pode escolher hora manual abaixo.',
-                      style: TextStyle(fontSize: 11, color: Colors.orangeAccent),
-                    )
-                  else
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: availableSlots.map((slot) {
-                        final bool isChosen = timeCtrl.text.trim() == slot;
-                        return ChoiceChip(
-                          label: Text(
-                            slot,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isChosen ? Colors.black : Colors.white,
-                              fontWeight:
-                                  isChosen ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                          selected: isChosen,
-                          selectedColor: const Color(0xFFD4AF37),
-                          backgroundColor: const Color(0xFF1E1E24),
-                          onSelected: (_) {
-                            setLocal(() => timeCtrl.text = slot);
-                          },
-                        );
-                      }).toList(),
-                    ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: timeCtrl,
-                          onChanged: (_) => setLocal(() {}),
-                          decoration: const InputDecoration(
-                            labelText: 'Horário escolhido (HH:MM)',
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Escolher hora exata',
-                        icon: const Icon(Icons.access_time,
-                            color: Color(0xFFD4AF37)),
-                        onPressed: () async {
-                          await pickCustomTime();
-                          setLocal(() {});
-                        },
-                                               ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    value: [
-                      'confirmado',
-                      'concluído',
-                      'não concluído',
-                      'cancelado',
-                    ].contains(selectedStatus.toLowerCase())
-                        ? selectedStatus.toLowerCase()
-                        : 'confirmado',
-                    dropdownColor: const Color(0xFF1B1B20),
-                    decoration: const InputDecoration(labelText: 'Status'),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'confirmado', child: Text('Confirmado')),
-                      DropdownMenuItem(
-                          value: 'concluído', child: Text('Concluído')),
-                      DropdownMenuItem(
-                          value: 'não concluído', child: Text('Não concluído')),
-                      DropdownMenuItem(
-                          value: 'cancelado', child: Text('Cancelado')),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) setLocal(() => selectedStatus = v);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text(
-                      'Avisar cliente no WhatsApp sobre o novo horário',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    value: sendWaAfterSave,
-                    activeColor: const Color(0xFFD4AF37),
-                    onChanged: (v) =>
-                        setLocal(() => sendWaAfterSave = v ?? false),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancelar'),
-              ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD4AF37),
-                  foregroundColor: Colors.black,
-                ),
-                onPressed: () async {
-                  if (isValidPlanMember && !currentIsPlan) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Cliente com plano ativo: só pode marcar na opção do plano.',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-                  if (isExpiredPlanMember && currentIsPlan) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Plano vencido: só pode marcar em serviço avulso.',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-
-                  final newService = srvCtrl.text.trim().isEmpty
-                      ? 'Serviço'
-                      : srvCtrl.text.trim();
-                  final newPrice =
-                      double.tryParse(priceCtrl.text.replaceAll(',', '.')) ??
-                          currentPrice;
-                  final newDur =
-                      int.tryParse(durCtrl.text.trim()) ?? currentDuration;
-                  final newDate = dateCtrl.text.trim();
-                  final newTime = timeCtrl.text.trim();
-                  final newBarber = barberCtrl.text.trim().isEmpty
-                      ? 'Mr. Jone'
-                      : barberCtrl.text.trim();
-
-                  final isDone = selectedStatus == 'concluído';
-
-                  Navigator.pop(ctx);
-
-                  final updatedItems = [
-                    {
-                      'name': newService,
-                      'price': newPrice,
-                      'duration': newDur,
-                      'isPlan': currentIsPlan,
-                      'sessionsPerMonth': currentSessions,
-                    }
-                  ];
-
-                  final patchPayload = {
-                    'items': updatedItems,
-                    'dateLabel': newDate,
-                    'date': newDate,
-                    'time': newTime,
-                    'barberName': newBarber,
-                    'status': selectedStatus,
-                    'attended': isDone,
-                    'completedAt':
-                        isDone ? DateTime.now().toIso8601String() : null,
-                    'updatedAt': DateTime.now().toIso8601String(),
-                  };
-
-                  await _patchBookingKeys(keys, patchPayload);
-                  await _fetchBookings(silent: true);
-
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Reagendado para $newDate às $newTime com $newBarber (atualizado no site e Firebase).',
-                      ),
-                    ),
-                  );
-
-                  if (sendWaAfterSave) {
-                    final updatedMap = {
-                      ...b,
-                      ...patchPayload,
-                    };
-                    await _openWhatsApp(updatedMap, rescheduled: true);
-                  }
-                },
-                child: const Text('Guardar e Atualizar Site'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _saveCatalogItem({
-    required bool isPlan,
-    String? existingId,
-    required String name,
-    required String category,
-    required double price,
-    required int duration,
-    required int sessionsPerMonth,
-  }) async {
-    final node = isPlan ? 'plans' : 'services';
-    final payload = {
-      'name': name.trim(),
-      'category': category.trim().isEmpty
-          ? (isPlan ? 'Planos Mensais' : 'Serviços Avulsos')
-          : category.trim(),
-      'price': price,
-      'duration': duration <= 0 ? 30 : duration,
-      'isPlan': isPlan,
-      'sessionsPerMonth':
-          isPlan ? (sessionsPerMonth <= 0 ? 4 : sessionsPerMonth) : 1,
-    };
-
-    if (existingId != null &&
-        existingId.isNotEmpty &&
-        !existingId.startsWith('def_')) {
-      await http.patch(
-        Uri.parse('$kFirebaseDbUrl/$node/$existingId.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      );
-    } else {
-      await http.post(
-        Uri.parse('$kFirebaseDbUrl/$node.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      );
-    }
-    await _fetchCatalog();
-  }
-
-  Future<void> _deleteCatalogItem(bool isPlan, String id) async {
-    if (id.isEmpty) return;
-    if (!id.startsWith('def_')) {
-      final node = isPlan ? 'plans' : 'services';
-      await http.delete(Uri.parse('$kFirebaseDbUrl/$node/$id.json'));
-      await _fetchCatalog();
-    } else {
-      setState(() {
-        if (isPlan) {
-          _plans.removeWhere((p) => (p['id'] ?? '').toString() == id);
-        } else {
-          _services.removeWhere((s) => (s['id'] ?? '').toString() == id);
-        }
-      });
-    }
-  }
-
-  Future<void> _saveBarber({
-    String? existingId,
-    required String name,
-    required String role,
-    required double commissionPct,
-  }) async {
-    final payload = {
-      'name': name.trim(),
-      'role': role.trim().isEmpty ? 'Barbeiro' : role.trim(),
-      'commission': commissionPct,
-    };
-
-    if (existingId != null && existingId.isNotEmpty) {
-      await http.patch(
-        Uri.parse('$kFirebaseDbUrl/barbers/$existingId.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      );
-            } else {
-      await http.post(
-        Uri.parse('$kFirebaseDbUrl/barbers.json'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(payload),
-      );
-    }
-    await _fetchBarbers();
-  }
-
-  Future<void> _deleteBarber(String id) async {
-    if (id.isEmpty) return;
-    await http.delete(Uri.parse('$kFirebaseDbUrl/barbers/$id.json'));
-    await _fetchBarbers();
-  }
-
-  Future<void> _openCatalogDialog({
-    required bool isPlan,
-    Map? item,
-  }) async {
-    final nameCtrl =
-        TextEditingController(text: (item?['name'] ?? '').toString());
-    final catCtrl = TextEditingController(
-      text: (item?['category'] ??
-              (isPlan ? 'Planos Mensais' : 'Serviços Avulsos'))
-          .toString(),
-    );
-    final priceCtrl =
-        TextEditingController(text: (item?['price'] ?? '0').toString());
-    final durCtrl =
-        TextEditingController(text: (item?['duration'] ?? '30').toString());
-    final sessCtrl = TextEditingController(
-      text: (item?['sessionsPerMonth'] ?? (isPlan ? '4' : '1')).toString(),
-    );
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF141417),
-        title: Text(
-          item == null
-              ? (isPlan ? 'Novo Plano Mensal' : 'Novo Serviço / Corte')
-              : (isPlan ? 'Editar Plano' : 'Editar Serviço'),
-          style: const TextStyle(color: Color(0xFFF3D97E)),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'Nome'),
-              ),
-              TextField(
-                controller: catCtrl,
-                decoration: const InputDecoration(labelText: 'Categoria'),
-              ),
-              TextField(
-                controller: priceCtrl,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Preço (R\$)'),
-              ),
-              TextField(
-                controller: durCtrl,
-                keyboardType: TextInputType.number,
-                decoration:
-                    const InputDecoration(labelText: 'Duração média (minutos)'),
-              ),
-              if (isPlan)
-                TextField(
-                  controller: sessCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Sessões por mês'),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD4AF37),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () async {
-              final name = nameCtrl.text.trim();
-              if (name.isEmpty) return;
-              final price =
-                  double.tryParse(priceCtrl.text.replaceAll(',', '.')) ?? 0;
-              final dur = int.tryParse(durCtrl.text.trim()) ?? 30;
-              final sess = int.tryParse(sessCtrl.text.trim()) ?? 4;
-              Navigator.pop(ctx);
-              await _saveCatalogItem(
-                isPlan: isPlan,
-                existingId: item?['id']?.toString(),
-                name: name,
-                category: catCtrl.text,
-                price: price,
-                duration: dur,
-                sessionsPerMonth: sess,
-              );
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _openBarberDialog({Map? barber}) async {
-    final nameCtrl =
-        TextEditingController(text: (barber?['name'] ?? '').toString());
-    final roleCtrl =
-        TextEditingController(text: (barber?['role'] ?? 'Barbeiro').toString());
-    final commCtrl =
-        TextEditingController(text: (barber?['commission'] ?? '50').toString());
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF141417),
-        title: Text(
-          barber == null ? 'Adicionar Barbeiro' : 'Editar Barbeiro',
-          style: const TextStyle(color: Color(0xFFF3D97E)),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(labelText: 'Nome do barbeiro'),
-            ),
-            TextField(
-              controller: roleCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'Especialidade / Função'),
-            ),
-            TextField(
-              controller: commCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Comissão (%)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD4AF37),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () async {
-              final name = nameCtrl.text.trim();
-              if (name.isEmpty) return;
-              final comm =
-                  double.tryParse(commCtrl.text.replaceAll(',', '.')) ?? 50;
-              Navigator.pop(ctx);
-              await _saveBarber(
-                existingId: barber?['id']?.toString(),
-                name: name,
-                role: roleCtrl.text,
-                commissionPct: comm,
-              );
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _openBarberReportDialog(String barberName, double commPct) {
-    final weekly = _barberStats(
-      barberName,
-      period: 'semanal',
+      Widget _buildAccountingTab() {
+    final diario = _periodFinancialSummary(
+      'diario',
       onlyCompleted: _onlyCompletedInAccounting,
     );
-    final monthly = _barberStats(
-      barberName,
-      period: 'mensal',
+    final semanal = _periodFinancialSummary(
+      'semanal',
       onlyCompleted: _onlyCompletedInAccounting,
     );
-    final activeList = (monthly['bookings'] as List);
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF141417),
-        title: Text(
-          'Relatório • $barberName (${commPct.toStringAsFixed(0)}%)',
-          style: const TextStyle(color: Color(0xFFF3D97E)),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _onlyCompletedInAccounting
-                    ? 'Base: Apenas atendimentos CONCLUÍDOS'
-                    : 'Base: Todos os atendimentos ativos',
-                style: const TextStyle(fontSize: 11, color: Colors.white70),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'SEMANAL (ÚLTIMOS 7 DIAS)',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFFF3D97E),
-                  fontSize: 12,
-                ),
-              ),
-              Text(
-                                  'Atendimentos: ${weekly['count']} • Produzido: R\$ ${(weekly['produced'] as double).toStringAsFixed(2)} • Comissão: R\$ ${(weekly['commission'] as double).toStringAsFixed(2)}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'MENSAL (MÊS ATUAL)',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFFF3D97E),
-                  fontSize: 12,
-                ),
-              ),
-              Text(
-                'Atendimentos: ${monthly['count']} • Produzido: R\$ ${(monthly['produced'] as double).toStringAsFixed(2)} • Comissão: R\$ ${(monthly['commission'] as double).toStringAsFixed(2)}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              const Divider(height: 18, color: Colors.white24),
-              const Text(
-                'DETALHE NO MÊS:',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                  color: Colors.greenAccent,
-                ),
-              ),
-              const SizedBox(height: 6),
-              if (activeList.isEmpty)
-                const Text(
-                  'Sem atendimentos registados neste período.',
-                  style: TextStyle(fontSize: 12, color: Colors.white60),
-                )
-              else
-                ...activeList.map((mapB) {
-                  final v = _calcBookingValue(mapB);
-                  final c = v * (commPct / 100.0);
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      '• ${mapB['dateLabel'] ?? mapB['date'] ?? ''} ${mapB['time'] ?? ''} — ${mapB['clientName'] ?? 'Cliente'} (${_buildServiceSummary(mapB)}) • R\$ ${v.toStringAsFixed(2)} / Com.: R\$ ${c.toStringAsFixed(2)}',
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                  );
-                }),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Fechar'),
-          ),
-        ],
-      ),
+    final mensal = _periodFinancialSummary(
+      'mensal',
+      onlyCompleted: _onlyCompletedInAccounting,
     );
-  }
 
-  Future<void> _openAddPauseDialog() async {
-    final dateCtrl = TextEditingController(text: _formatDateBR(_gridSelectedDate));
-    final startCtrl = TextEditingController(text: '12:00');
-    final endCtrl = TextEditingController(text: '13:00');
-    final reasonCtrl = TextEditingController(text: 'Almoço / Pausa');
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF141417),
-        title: const Text(
-          'Nova Pausa / Bloqueio',
-          style: TextStyle(color: Color(0xFFF3D97E)),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: dateCtrl,
-              decoration: const InputDecoration(labelText: 'Data'),
-            ),
-            TextField(
-              controller: startCtrl,
-              decoration: const InputDecoration(labelText: 'Início (HH:MM)'),
-            ),
-            TextField(
-              controller: endCtrl,
-              decoration: const InputDecoration(labelText: 'Fim (HH:MM)'),
-            ),
-            TextField(
-              controller: reasonCtrl,
-              decoration: const InputDecoration(labelText: 'Motivo'),
-            ),
-          ],
-        ),
-          actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD4AF37),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              setState(() {
-                _pauses.add({
-                  'date': dateCtrl.text.trim(),
-                  'start': startCtrl.text.trim(),
-                  'end': endCtrl.text.trim(),
-                  'reason': reasonCtrl.text.trim().isEmpty
-                      ? 'Pausa'
-                      : reasonCtrl.text.trim(),
-                });
-              });
-              await _savePausesAndSync();
-            },
-            child: const Text('Guardar Pausa'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeaderBanner() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF141417),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFD4AF37), width: 1.0),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.content_cut, color: Color(0xFFD4AF37), size: 18),
-              SizedBox(width: 8),
-              Text(
-                'BARBEARIA MR JONE',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.0,
-                  color: Color(0xFFF3D97E),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _statusMsg,
-            style: const TextStyle(fontSize: 12, color: Colors.white70),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScheduleGridSection() {
-    final String expKey = _expedienteKeyForDate(_gridSelectedDate);
-    final Map dayExp = _expediente[expKey] ?? {};
-    final bool isOpen = dayExp['ativo'] == true;
-    final String dateBR = _formatDateBR(_gridSelectedDate);
-    final String weekdayName = _weekdayFullName(_gridSelectedDate);
-
-    final List> turnos = [];
-    final t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
-    final t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
-    if (t1s != null && t1e != null && t1e > t1s) {
-      turnos.add({'start': t1s, 'end': t1e});
-    }
-    if (dayExp['t2Ativo'] == true) {
-      final t2s = _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
-      final t2e = _timeToMinutes((dayExp['t2Fim'] ?? '19:30').toString());
-      if (t2s != null && t2e != null && t2e > t2s) {
-        turnos.add({'start': t2s, 'end': t2e});
-      }
-    }
-
-    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
-    final List<int> slotMinutes = [];
-    for (final t in turnos) {
-      for (int m = t['start']!; m < t['end']!; m += step) {
-        if (!slotMinutes.contains(m)) slotMinutes.add(m);
-      }
-    }
-
-    final List<String> barberFilterOptions = ['TODOS'];
-    for (final b in _barbers) {
-      if (b is Map && (b['name'] ?? '').toString().trim().isNotEmpty) {
-        barberFilterOptions.add((b['name'] ?? '').toString().trim());
-      }
-    }
-    if (!barberFilterOptions.contains(_gridSelectedBarberFilter)) {
-      _gridSelectedBarberFilter = 'TODOS';
-    }
-
-    int freeCount = 0;
-    int bookedCount = 0;
-    for (final m in slotMinutes) {
-      final pauseHit = _findPauseAtSlot(_gridSelectedDate, m);
-      final bookingHit = _findBookingAtSlot(
-        _gridSelectedDate,
-        m,
-        barberFilter: _gridSelectedBarberFilter,
-      );
-      if (bookingHit != null) {
-        bookedCount++;
-      } else if (pauseHit == null) {
-        freeCount++;
-      }
-    }
-
-    return Card(
-      color: const Color(0xFF141417),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0x33D4AF37), width: 1),
-      ),
-      margin: const EdgeInsets.only(bottom: 14),
-              child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'GRADE DIÁRIA DE HORÁRIOS',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFFF3D97E),
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '$weekdayName • $dateBR',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _gridSelectedDate,
-                      firstDate: DateTime(2024),
-                      lastDate: DateTime(2030),
-                    );
-                    if (picked != null && mounted) {
-                      setState(() => _gridSelectedDate = picked);
-                    }
-                  },
-                  icon: const Icon(Icons.calendar_month,
-                      size: 16, color: Color(0xFFD4AF37)),
-                  label: const Text(
-                    'Trocar data',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 44,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: 14,
-                itemBuilder: (ctx, i) {
-                  final d = DateTime.now().add(Duration(days: i));
-                  final selected = _isSameDay(d, _gridSelectedDate);
-                  final kDia = _expedienteKeyForDate(d);
-                  final aberto = _expediente[kDia]?['ativo'] == true;
-                  final nomeDia = (_expediente[kDia]?['name'] ?? '').toString();
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      selected: selected,
-                      selectedColor: const Color(0xFFD4AF37),
-                      backgroundColor: const Color(0xFF1B1B20),
-                      label: Text(
-                        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} • ${nomeDia.length >= 3 ? nomeDia.substring(0, 3) : nomeDia}${aberto ? '' : ' (Fech.)'}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: selected ? Colors.black : Colors.white,
-                          fontWeight:
-                              selected ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
-                      onSelected: (_) => setState(() => _gridSelectedDate = d),
-                    ),
-                  );
-                },
-              ),
-            ),
-            if (barberFilterOptions.length > 1) ...[
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: barberFilterOptions.map((bf) {
-                    final sel = _gridSelectedBarberFilter == bf;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: ChoiceChip(
-                        selected: sel,
-                        selectedColor: Colors.white,
-                        backgroundColor: const Color(0xFF1B1B20),
-                        label: Text(
-                          bf == 'TODOS' ? 'Todos os Barbeiros' : bf,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: sel ? Colors.black : Colors.white,
-                            fontWeight:
-                                sel ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        onSelected: (_) =>
-                            setState(() => _gridSelectedBarberFilter = bf),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ],
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0E0E11),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Disponíveis: $freeCount faixa(s)',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.greenAccent,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    'Marcados: $bookedCount faixa(s)',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFFF3D97E),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            if (!isOpen || slotMinutes.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0E0E11),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  'Expediente fechado em $weekdayName ($dateBR). Ative o dia na aba Horários para liberar a grade.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-              )
-            else
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0E0E11),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white12),
-                ),
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  children: slotMinutes.map((m) {
-                    final String slotStartStr = _minutesToTime(m);
-                    final String slotEndStr = _minutesToTime(m + step);
-                    final pauseHit = _findPauseAtSlot(_gridSelectedDate, m);
-                    final bookingHit = _findBookingAtSlot(
-                      _gridSelectedDate,
-                      m,
-                      barberFilter: _gridSelectedBarberFilter,
-                    );
-
-                    if (pauseHit != null) {
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 9),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF231818),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: Colors.orangeAccent.withOpacity(0.45)),
-                        ),
-                        child: Row(
-                          children: [
-                            Text(
-                              '$slotStartStr–$slotEndStr',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                  color: Colors.orangeAccent),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'BLOQUEADO / PAUSA: ${pauseHit['reason']} (${pauseHit['startStr']} às ${pauseHit['endStr']})',
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.white70),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    if (bookingHit != null) {
-                      final Map bk = bookingHit['booking'] as Map;
-                      final String bKey = (bk['firebaseKey'] ?? '').toString();
-                      final String cName =
-                          (bk['clientName'] ?? 'Cliente').toString();
-                      final String bName =
-                          (bk['barberName'] ?? 'Mr. Jone').toString();
-                      final String bStart = bookingHit['startStr'].toString();
-                                              final String bEnd = bookingHit['endStr'].toString();
-                      final String srvSum = _buildServiceSummary(bk);
-                      final String st =
-                          (bk['status'] ?? 'confirmado').toString();
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF231D09),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: const Color(0xFFD4AF37).withOpacity(0.75)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFD4AF37),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    '$slotStartStr\n$slotEndStr',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 11,
-                                      height: 1.15,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'MARCADO • $cName',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFFF3D97E),
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                      Text(
-                                        'Faixa: $bStart às $bEnd • $srvSum',
-                                        style: const TextStyle(
-                                            fontSize: 11, color: Colors.white),
-                                      ),
-                                      Text(
-                                        'Barbeiro: $bName • Status: $st',
-                                        style: const TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.white70),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Reagendar / Editar',
-                                  icon: const Icon(Icons.edit_calendar,
-                                      color: Color(0xFFF3D97E), size: 20),
-                                  onPressed: () => _openEditBookingDialog(bk),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                TextButton(
-                                  onPressed: () =>
-                                      _updateStatus(bKey, 'cancelado'),
-                                  child: const Text(
-                                    'Cancelar',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.orangeAccent),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () => _deleteBooking(bKey),
-                                  child: const Text(
-                                    'Excluir',
-                                    style: TextStyle(
-                                        fontSize: 12, color: Colors.redAccent),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    return InkWell(
-                      onTap: () => _openManualEntryDialog(
-                        presetDateStr: dateBR,
-                        presetTimeStr: slotStartStr,
-                        presetBarberName: _gridSelectedBarberFilter == 'TODOS'
-                            ? null
-                            : _gridSelectedBarberFilter,
-                      ),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 5),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF141417),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: Colors.greenAccent.withOpacity(0.25)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              '$slotStartStr – $slotEndStr',
-                              style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white),
-                            ),
-                            const Text(
-                              'DISPONÍVEL • + Marcar',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.greenAccent,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAccountingTab() {
-    final double receita =
-        _totalReceita(onlyCompleted: _onlyCompletedInAccounting);
-    final double totalComissao =
-        _totalComissoes(onlyCompleted: _onlyCompletedInAccounting);
-    final double liquidoCasa = receita - totalComissao;
-
-    final List visibleBookings = _bookings.where((b) {
+    final List> visibleBookings = _bookings.where((b) {
       if (!_onlyCompletedInAccounting) return true;
       final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
       return st != 'cancelado';
     }).toList();
+
+    Widget periodCard(String title, Map<String, double> data) {
+      return Card(
+        color: const Color(0xFF141417),
+        margin: const EdgeInsets.only(bottom: 8),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFF3D97E),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Receita: R\$ ${(data['receita'] ?? 0).toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 12, color: Colors.white),
+                  ),
+                  Text(
+                    'Comissões: R\$ ${(data['comissao'] ?? 0).toStringAsFixed(2)}',
+                    style: const TextStyle(
+                        fontSize: 12, color: Colors.orangeAccent),
+                  ),
+                  Text(
+                    'Líquido: R\$ ${(data['liquido'] ?? 0).toStringAsFixed(2)}',
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.greenAccent),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return RefreshIndicator(
       onRefresh: _syncAll,
@@ -3926,102 +1771,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         padding: const EdgeInsets.all(14),
         children: [
           _buildHeaderBanner(),
-          if (_newAlerts.isNotEmpty) ...[
-            Card(
-              color: const Color(0xFF231D09),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: const BorderSide(color: Color(0xFFD4AF37), width: 1.2),
-              ),
-              margin: const EdgeInsets.only(bottom: 12),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'NOVO HORÁRIO MARCADO (${_newAlerts.length})',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFF3D97E),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => setState(() => _newAlerts = []),
-                          child: const Text('Limpar aviso'),
-                        ),
-                      ],
-                    ),
-                    ..._newAlerts.take(5).map((al) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          '• ${al['clientName'] ?? 'Cliente'} marcou para ${al['dateLabel'] ?? al['date'] ?? ''} às ${al['time'] ?? ''} (${al['barberName'] ?? 'Barbearia Mr Jone'})',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-            ),
-          ],
-          Row(
-            children: [
-              Expanded(
-                child: Card(
-                  color: const Color(0xFF141417),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                        const Text('RECEITA', style: TextStyle(fontSize: 11)),
-                        const SizedBox(height: 4),
-                        Text(
-                          'R\$ ${receita.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFF3D97E),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Card(
-                  color: const Color(0xFF141417),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('LÍQUIDO CASA',
-                            style: TextStyle(fontSize: 11)),
-                        const SizedBox(height: 4),
-                        Text(
-                          'R\$ ${liquidoCasa.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFFF3D97E),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
+          periodCard('CONTABILIDADE DIÁRIA (HOJE)', diario),
+          periodCard('CONTABILIDADE SEMANAL (ÚLTIMOS 7 DIAS)', semanal),
+          periodCard('CONTABILIDADE MENSAL (MÊS ATUAL)', mensal),
+          const SizedBox(height: 6),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFD4AF37),
@@ -4029,7 +1782,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             ),
             onPressed: () => _openManualEntryDialog(),
             icon: const Icon(Icons.add_card),
-            label: const Text('Registar Atendimento Manual (Balcão / Plano)'),
+            label: const Text('Encaixar / Registar Atendimento Manual'),
           ),
           const SizedBox(height: 8),
           Card(
@@ -4040,7 +1793,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 style: TextStyle(fontSize: 13),
               ),
               subtitle: const Text(
-                'Ativo por padrão: Concluir soma; Não concluído não conta e fica na agenda até você excluir.',
+                'Ativo por padrão: Concluir soma; Não concluído fica na agenda até excluir.',
                 style: TextStyle(fontSize: 11, color: Colors.white70),
               ),
               value: _onlyCompletedInAccounting,
@@ -4051,7 +1804,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           const SizedBox(height: 12),
           _buildScheduleGridSection(),
           const Text(
-            'AGENDA & ATENDIMENTOS',
+            'AGENDA & ATENDIMENTOS (SEM DUPLICATAS)',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Color(0xFFF3D97E),
@@ -4065,25 +1818,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             final String status = (b['status'] ?? 'confirmado').toString();
             final bool isDone = _isCompletedStatus(b);
             final bool isNotDone = _isNotCompletedStatus(b);
-            final bool countsInTotals = _shouldCountBooking(
-              b,
-              onlyCompleted: _onlyCompletedInAccounting,
-            );
             final double val = _calcBookingValue(b);
             final double comm = _calcBookingCommission(b);
             final String srvNames = _buildServiceSummary(b);
             final String cName = (b['clientName'] ?? 'Cliente').toString();
-            final String cPhone =
-                (b['clientPhone'] ?? b['phone'] ?? '').toString();
-            final member =
-                _findPlanMember(clientName: cName, clientPhone: cPhone);
-            final bool planValid = member != null && _isPlanMemberValid(member);
-            final bool planExpired =
-                member != null && !_isPlanMemberValid(member);
-
-            final badge = planValid
-                ? ' [PLANO ATIVO]'
-                : (planExpired ? ' [PLANO VENCIDO]' : '');
 
             return Card(
               color: const Color(0xFF141417),
@@ -4094,7 +1832,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$cName$badge • ${b['dateLabel'] ?? b['date'] ?? ''} ${b['time'] ?? ''}',
+                      '$cName • ${b['dateLabel'] ?? b['date'] ?? ''} ${b['time'] ?? ''}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Color(0xFFF3D97E),
@@ -4102,7 +1840,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Barbeiro: ${b['barberName'] ?? 'Mr. Jone'} • Receita: R\$ ${val.toStringAsFixed(2)} • Comissão: R\$ ${comm.toStringAsFixed(2)} • $status${countsInTotals ? '' : ' (não somado)'}',
+                      'Barbeiro: ${b['barberName'] ?? 'Jhonny'} • Receita: R\$ ${val.toStringAsFixed(2)} • Comissão: R\$ ${comm.toStringAsFixed(2)} • $status',
                       style: const TextStyle(fontSize: 12),
                     ),
                     Text(
@@ -4129,7 +1867,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           ),
                         ),
                         TextButton(
-                          onPressed: () => _concluirAtendimento(b),
+                          onPressed: () async {
+                            await _patchBookingKeys(_allKeysForBooking(b), {
+                              'status': 'concluído',
+                              'attended': true,
+                              'completedAt': DateTime.now().toIso8601String(),
+                            });
+                            await _fetchBookings(silent: true);
+                          },
                           child: Text(
                             isDone ? 'Concluído ✓' : 'Concluir',
                             style: TextStyle(
@@ -4141,22 +1886,41 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           ),
                         ),
                         TextButton(
-                          onPressed: () => _marcarNaoConcluido(b),
+                          onPressed: () async {
+                            await _patchBookingKeys(_allKeysForBooking(b), {
+                              'status': 'não concluído',
+                              'attended': false,
+                              'completedAt': null,
+                            });
+                            await _fetchBookings(silent: true);
+                          },
                           child: Text(
                             isNotDone ? 'Não concluído ✓' : 'Não concluído',
                             style: TextStyle(
                               color: Colors.orangeAccent,
-                              fontWeight:
-                                  isNotDone ? FontWeight.bold : FontWeight.normal,
+                              fontWeight: isNotDone
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                             ),
                           ),
                         ),
                         TextButton(
-                          onPressed: () => _updateStatus(key, 'cancelado'),
+                          onPressed: () async {
+                            await _patchBookingKeys(_allKeysForBooking(b), {
+                              'status': 'cancelado',
+                            });
+                            await _fetchBookings(silent: true);
+                          },
                           child: const Text('Cancelar'),
                         ),
                         TextButton(
-                          onPressed: () => _deleteBooking(key),
+                          onPressed: () async {
+                            for (final k in _allKeysForBooking(b)) {
+                              await http.delete(
+                                  Uri.parse('$kFirebaseDbUrl/bookings/$k.json'));
+                            }
+                            await _fetchBookings(silent: true);
+                          },
                           child: const Text(
                             'Excluir',
                             style: TextStyle(color: Colors.redAccent),
@@ -4172,916 +1936,139 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         ],
       ),
     );
-  }
+      }
+      Widget _buildScheduleGridSection() {
+    final String expKey = _expedienteKeyForDate(_gridSelectedDate);
+    final Map<String, dynamic> dayExp = _expediente[expKey] ?? {};
+    final bool isOpen = dayExp['ativo'] == true;
+    final String dateBR = _formatDateBR(_gridSelectedDate);
+    final String weekdayName = _weekdayFullName(_gridSelectedDate);
 
-  Widget _buildCatalogTab() {
-    return RefreshIndicator(
-      onRefresh: _fetchCatalog,
-      child: ListView(
-        padding: const EdgeInsets.all(14),
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD4AF37),
-                    foregroundColor: Colors.black,
-                  ),
-                  onPressed: () => _openCatalogDialog(isPlan: false),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Serviço / Corte'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF222228),
-                    foregroundColor: const Color(0xFFF3D97E),
-                                        ),
-                  onPressed: () => _openCatalogDialog(isPlan: true),
-                  icon: const Icon(Icons.workspace_premium),
-                  label: const Text('Plano Mensal'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'SERVIÇOS AVULSOS, PREÇOS E DURAÇÃO',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFFF3D97E),
-            ),
-          ),
-          const SizedBox(height: 6),
-          ..._services.map((s) {
-            final price = double.tryParse('${s['price'] ?? 0}') ?? 0;
-            final dur = int.tryParse('${s['duration'] ?? 30}') ?? 30;
-            return Card(
-              color: const Color(0xFF141417),
-              child: ListTile(
-                title: Text(
-                    '${s['name'] ?? 'Serviço'} • R\$ ${price.toStringAsFixed(2)}'),
-                subtitle:
-                    Text('${s['category'] ?? 'Avulso'} • Duração: $dur min'),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: Color(0xFFF3D97E)),
-                      onPressed: () => _openCatalogDialog(isPlan: false, item: s),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: () =>
-                          _deleteCatalogItem(false, (s['id'] ?? '').toString()),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-          const SizedBox(height: 14),
-          const Text(
-            'PLANOS MENSAIS',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFFF3D97E),
-            ),
-          ),
-          const SizedBox(height: 6),
-          ..._plans.map((p) {
-            final price = double.tryParse('${p['price'] ?? 0}') ?? 0;
-            final sessions = int.tryParse('${p['sessionsPerMonth'] ?? 4}') ?? 4;
-            final dur = int.tryParse('${p['duration'] ?? 40}') ?? 40;
-            return Card(
-              color: const Color(0xFF141417),
-              child: ListTile(
-                title: Text(
-                    '${p['name'] ?? 'Plano'} • R\$ ${price.toStringAsFixed(2)}'),
-                subtitle: Text(
-                  '$sessions sessões/mês • $dur min/atend.',
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: Color(0xFFF3D97E)),
-                      onPressed: () => _openCatalogDialog(isPlan: true, item: p),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: () =>
-                          _deleteCatalogItem(true, (p['id'] ?? '').toString()),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExpedienteTab() {
-    final ordem = ['1', '2', '3', '4', '5', '6', '0'];
-    return ListView(
-      padding: const EdgeInsets.all(14),
-      children: [
-        Card(
-          color: const Color(0xFF141417),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Intervalo de encaixe (min):'),
-                DropdownButton<int>(
-                  value: _slotStepMinutes,
-                  dropdownColor: const Color(0xFF1B1B20),
-                  items: const [
-                    DropdownMenuItem(value: 10, child: Text('10 min')),
-                    DropdownMenuItem(value: 15, child: Text('15 min')),
-                    DropdownMenuItem(value: 20, child: Text('20 min')),
-                    DropdownMenuItem(value: 30, child: Text('30 min')),
-                  ],
-                  onChanged: (v) async {
-                    if (v == null) return;
-                    setState(() => _slotStepMinutes = v);
-                    await _saveExpedienteAndSync();
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        ...ordem.map((d) {
-          final info = Map<String, dynamic>.from(_expediente[d] ?? {});
-          final bool ativo = info['ativo'] == true;
-          final bool t2Ativo = info['t2Ativo'] == true;
-          final t1IniCtrl = _expControllers['${d}_t1Ini']!;
-          final t1FimCtrl = _expControllers['${d}_t1Fim']!;
-          final t2IniCtrl = _expControllers['${d}_t2Ini']!;
-          final t2FimCtrl = _expControllers['${d}_t2Fim']!;
-
-          return Card(
-            color: const Color(0xFF141417),
-            margin: const EdgeInsets.only(bottom: 10),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Checkbox(
-                            value: ativo,
-                            onChanged: (val) async {
-                              setState(() {
-                                _expediente[d] = {
-                                  ...info,
-                                  'ativo': val ?? false,
-                                };
-                              });
-                              await _saveExpedienteAndSync();
-                            },
-                          ),
-                          Text(
-                            (info['name'] ?? d).toString(),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          setState(() {
-                            _expediente[d] = {
-                              ...info,
-                              't2Ativo': !t2Ativo,
-                            };
-                          });
-                          await _saveExpedienteAndSync();
-                        },
-                        child: Text(
-                          t2Ativo ? 'Remover Turno 2' : '+ Turno 2',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: t1IniCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Início 1',
-                            isDense: true,
-                          ),
-                          onSubmitted: (v) async {
-                            setState(() {
-                              _expediente[d] = {
-                                ...info,
-                                't1Inicio': v.trim(),
-                              };
-                            });
-                            await _saveExpedienteAndSync();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: t1FimCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Fim 1',
-                            isDense: true,
-                          ),
-                          onSubmitted: (v) async {
-                            setState(() {
-                              _expediente[d] = {
-                                ...info,
-                                't1Fim': v.trim(),
-                              };
-                            });
-                            await _saveExpedienteAndSync();
-                          },
-                        ),
-                      ),
-                    ],
-                                        ),
-                  if (t2Ativo) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: t2IniCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Início 2',
-                              isDense: true,
-                            ),
-                            onSubmitted: (v) async {
-                              setState(() {
-                                _expediente[d] = {
-                                  ...info,
-                                  't2Inicio': v.trim(),
-                                };
-                              });
-                              await _saveExpedienteAndSync();
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: t2FimCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Fim 2',
-                              isDense: true,
-                            ),
-                            onSubmitted: (v) async {
-                              setState(() {
-                                _expediente[d] = {
-                                  ...info,
-                                  't2Fim': v.trim(),
-                                };
-                              });
-                              await _saveExpedienteAndSync();
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () async {
-                        setState(() {
-                          _expediente[d] = {
-                            ...info,
-                            't1Inicio': t1IniCtrl.text.trim(),
-                            't1Fim': t1FimCtrl.text.trim(),
-                            't2Inicio': t2IniCtrl.text.trim(),
-                            't2Fim': t2FimCtrl.text.trim(),
-                          };
-                        });
-                        await _saveExpedienteAndSync();
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                  'Horário de ${info['name'] ?? d} salvo e sincronizado com o site.'),
-                            ),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.save, size: 16),
-                      label: const Text('Salvar dia'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
-        const SizedBox(height: 10),
-        ElevatedButton.icon(
-          onPressed: _openAddPauseDialog,
-          icon: const Icon(Icons.pause_circle),
-          label: const Text('Adicionar Pausa / Bloqueio'),
-        ),
-        const SizedBox(height: 8),
-        ..._pauses.asMap().entries.map((entry) {
-          final idx = entry.key;
-          final p = entry.value as Map;
-          return Card(
-            color: const Color(0xFF141417),
-            child: ListTile(
-              title: Text(
-                  '${p['date'] ?? ''} • ${p['start'] ?? ''} às ${p['end'] ?? ''}'),
-              subtitle: Text((p['reason'] ?? 'Pausa').toString()),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete, color: Colors.redAccent),
-                onPressed: () async {
-                  setState(() => _pauses.removeAt(idx));
-                  await _savePausesAndSync();
-                },
-              ),
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildClientsAndPlansTab() {
-    return RefreshIndicator(
-      onRefresh: _fetchClientsAndPlanMembers,
-      child: ListView(
-        padding: const EdgeInsets.all(14),
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD4AF37),
-                    foregroundColor: Colors.black,
-                  ),
-                  onPressed: () => _openPlanMemberDialog(),
-                  icon: const Icon(Icons.card_membership),
-                  label: const Text('Adicionar ao Plano'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF222228),
-                    foregroundColor: const Color(0xFFF3D97E),
-                  ),
-                  onPressed: () => _openClientDialog(),
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('Novo Cliente'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'CLIENTES DO PLANO (${_planMembers.length})',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFFF3D97E),
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (_planMembers.isEmpty)
-            const Card(
-              color: Color(0xFF141417),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                  'Nenhuma pessoa cadastrada no plano ainda. Toque em "Adicionar ao Plano".',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-              ),
-            ),
-          ..._planMembers.map((m) {
-            final bool valid = _isPlanMemberValid(m);
-            final String cName = (m['clientName'] ?? 'Cliente').toString();
-            final String phone = (m['phone'] ?? '').toString();
-            final String planName = (m['planName'] ?? 'Plano Mensal').toString();
-            final String expiresAt = (m['expiresAt'] ?? '-').toString();
-            return Card(
-              color: const Color(0xFF141417),
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                title: Text(
-                  '$cName • ${valid ? 'ATIVO (Só Plano)' : 'VENCIDO / INATIVO (Só Avulso)'}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: valid ? Colors.greenAccent : Colors.orangeAccent,
-                  ),
-                ),
-                subtitle: Text(
-                  '$planName\nTel: $phone • Validade: $expiresAt',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                isThreeLine: true,
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: Color(0xFFF3D97E)),
-                      onPressed: () =>
-                          _openPlanMemberDialog(existingMember: m),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: () =>
-                          _deletePlanMember((m['id'] ?? '').toString()),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-          const SizedBox(height: 14),
-          Text(
-            'BANCO DE CLIENTES (${_clients.length})',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFFF3D97E),
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (_clients.isEmpty)
-            const Card(
-              color: Color(0xFF141417),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                  'Nenhum cliente registado ainda.',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-              ),
-            ),
-                       ..._clients.map((c) {
-            final String name = (c['name'] ?? 'Cliente').toString();
-            final String phone = (c['phone'] ?? '').toString();
-            final int totalB = int.tryParse('${c['totalBookings'] ?? 0}') ?? 0;
-            final member =
-                _findPlanMember(clientName: name, clientPhone: phone);
-            final bool isValidPlan =
-                member != null && _isPlanMemberValid(member);
-            final bool isExpiredPlan =
-                member != null && !_isPlanMemberValid(member);
-
-            final tag = isValidPlan
-                ? ' • [PLANO ATIVO]'
-                : (isExpiredPlan ? ' • [PLANO VENCIDO]' : '');
-
-            return Card(
-              color: const Color(0xFF141417),
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                title: Text(
-                  '$name$tag',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Text(
-                  'Tel: ${phone.isEmpty ? '-' : phone} • Marcações: $totalB',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Colocar / Editar no plano',
-                      icon: const Icon(Icons.card_membership,
-                          color: Colors.greenAccent),
-                      onPressed: () => _openPlanMemberDialog(
-                        existingMember: member,
-                        prefillName: name,
-                        prefillPhone: phone,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: Color(0xFFF3D97E)),
-                      onPressed: () => _openClientDialog(client: c),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: () => _deleteClient((c['id'] ?? '').toString()),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBarbersTab() {
-    return RefreshIndicator(
-      onRefresh: _fetchBarbers,
-      child: ListView(
-        padding: const EdgeInsets.all(14),
-        children: [
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD4AF37),
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () => _openBarberDialog(),
-            icon: const Icon(Icons.person_add),
-            label: const Text('Adicionar Barbeiro'),
-          ),
-          const SizedBox(height: 10),
-          Card(
-            color: const Color(0xFF141417),
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'RELATÓRIO POR BARBEIRO',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFFF3D97E),
-                      fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ChoiceChip(
-                          label: const Center(child: Text('Semanal (7d)')),
-                          selected: _barberReportPeriod == 'semanal',
-                          selectedColor: const Color(0xFFD4AF37),
-                          labelStyle: TextStyle(
-                            color: _barberReportPeriod == 'semanal'
-                                ? Colors.black
-                                : Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          onSelected: (_) =>
-                              setState(() => _barberReportPeriod = 'semanal'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ChoiceChip(
-                          label: const Center(child: Text('Mensal (Mês)')),
-                          selected: _barberReportPeriod == 'mensal',
-                          selectedColor: const Color(0xFFD4AF37),
-                          labelStyle: TextStyle(
-                            color: _barberReportPeriod == 'mensal'
-                                ? Colors.black
-                                : Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          onSelected: (_) =>
-                              setState(() => _barberReportPeriod = 'mensal'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (_barbers.isEmpty)
-            const Card(
-              color: Color(0xFF141417),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                    'Nenhum barbeiro registado no Firebase. Toque acima para adicionar.'),
-              ),
-            ),
-          ..._barbers.map((b) {
-            final name = (b['name'] ?? 'Barbeiro').toString();
-            final commPct = double.tryParse('${b['commission'] ?? 50}') ?? 50;
-
-            final weeklyStats = _barberStats(
-              name,
-              period: 'semanal',
-              onlyCompleted: _onlyCompletedInAccounting,
-            );
-            final monthlyStats = _barberStats(
-              name,
-              period: 'mensal',
-              onlyCompleted: _onlyCompletedInAccounting,
-            );
-
-            final selectedStats =
-                _barberReportPeriod == 'semanal' ? weeklyStats : monthlyStats;
-            final periodLabel =
-                _barberReportPeriod == 'semanal' ? 'Semanal' : 'Mensal';
-            final selProduced = (selectedStats['produced'] as double?) ?? 0;
-            final selComm = (selectedStats['commission'] as double?) ?? 0;
-            final selCount = (selectedStats['count'] as int?) ?? 0;
-
-            final wProduced = (weeklyStats['produced'] as double?) ?? 0;
-            final wComm = (weeklyStats['commission'] as double?) ?? 0;
-            final mProduced = (monthlyStats['produced'] as double?) ?? 0;
-            final mComm = (monthlyStats['commission'] as double?) ?? 0;
-
-            return Card(
-              color: const Color(0xFF141417),
-              margin: const EdgeInsets.only(bottom: 10),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '$name • Comissão ${commPct.toStringAsFixed(0)}%',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFF3D97E),
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Relatório detalhado',
-                              icon: const Icon(Icons.assessment,
-                                  color: Colors.greenAccent),
-                              onPressed: () =>
-                                  _openBarberReportDialog(name, commPct),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.edit,
-                                  color: Color(0xFFF3D97E)),
-                              onPressed: () => _openBarberDialog(barber: b),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete,
-                                  color: Colors.redAccent),
-                              onPressed: () =>
-                                  _deleteBarber((b['id'] ?? '').toString()),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    Text(
-                      '${b['role'] ?? 'Barbeiro'} • $periodLabel ($selCount atend.): Produzido R\$ ${selProduced.toStringAsFixed(2)} • Comissão R\$ ${selComm.toStringAsFixed(2)}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Semanal: R\$ ${wProduced.toStringAsFixed(2)} (Com. R\$ ${wComm.toStringAsFixed(2)})  |  Mensal: R\$ ${mProduced.toStringAsFixed(2)} (Com. R\$ ${mComm.toStringAsFixed(2)})',
-                      style:
-                                                  const TextStyle(fontSize: 11, color: Colors.white70),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingsTab() {
-    return ListView(
-      padding: const EdgeInsets.all(14),
-      children: [
-        Card(
-          color: const Color(0xFF141417),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Monitorização Mesmo Fechado & Avisos',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFF3D97E),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Dica: no Android, deixe a bateria deste app em "Sem restrição" para o serviço em segundo plano não ser encerrado.',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-                const SizedBox(height: 10),
-                ElevatedButton.icon(
-                  onPressed: () => _showBookingNotification(
-                    'Teste • Barbearia Mr Jone',
-                    'Notificações locais ativadas neste dispositivo.',
-                    999,
-                  ),
-                  icon: const Icon(Icons.notifications_active),
-                  label: const Text('Testar Notificação no Dispositivo'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          color: const Color(0xFF141417),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Palavra-passe do Painel (Guardada no Dispositivo)',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFF3D97E),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _newPassController,
-                  keyboardType: TextInputType.visiblePassword,
-                  decoration:
-                      const InputDecoration(labelText: 'Nova palavra-passe'),
-                ),
-                const SizedBox(height: 10),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD4AF37),
-                    foregroundColor: Colors.black,
-                  ),
-                  onPressed: () => _saveNewAdminPass(_newPassController.text),
-                  child: const Text('Guardar Palavra-passe'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          color: const Color(0xFF141417),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.redAccent,
-                side: const BorderSide(color: Colors.redAccent),
-              ),
-              onPressed: _logoutAccount,
-              icon: const Icon(Icons.logout),
-              label: const Text('Sair da conta'),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    const gold = Color(0xFFD4AF37);
-    if (!_unlocked) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('BARBEARIA MR JONE • GESTÃO'),
-          backgroundColor: const Color(0xFF141417),
-        ),
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(Icons.content_cut, color: gold, size: 44),
-              const SizedBox(height: 10),
-              const Text(
-                'BARBEARIA MR JONE',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                  color: Color(0xFFF3D97E),
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Acesso do Proprietário',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.white70),
-              ),
-              const SizedBox(height: 18),
-              TextField(
-                controller: _passController,
-                obscureText: true,
-                keyboardType: TextInputType.visiblePassword,
-                onSubmitted: (_) => _checkPass(),
-                decoration: const InputDecoration(
-                  labelText: 'Introduza a palavra-passe de acesso',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: gold,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                onPressed: _checkPass,
-                child: const Text(
-                  'ENTRAR',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
+    final List> turnos = [];
+    final t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
+    final t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
+    if (t1s != null && t1e != null && t1e > t1s) {
+      turnos.add({'start': t1s, 'end': t1e});
+    }
+    if (dayExp['t2Ativo'] == true) {
+      final t2s = _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
+      final t2e = _timeToMinutes((dayExp['t2Fim'] ?? '19:30').toString());
+      if (t2s != null && t2e != null && t2e > t2s) {
+        turnos.add({'start': t2s, 'end': t2e});
+      }
     }
 
-    final tabs = [
-      _buildAccountingTab(),
-      _buildCatalogTab(),
-      _buildExpedienteTab(),
-      _buildClientsAndPlansTab(),
-      _buildBarbersTab(),
-      _buildSettingsTab(),
-    ];
+    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
+    final List<int> slotMinutes = [];
+    for (final t in turnos) {
+      for (int m = t['start']!; m < t['end']!; m += step) {
+        if (!slotMinutes.contains(m)) slotMinutes.add(m);
+      }
+    }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('MR JONE • GESTÃO COMPLETA'),
-        backgroundColor: const Color(0xFF141417),
-        actions: [
-          IconButton(
-            tooltip: 'Testar notificação',
-            icon: const Icon(Icons.notifications_active),
-            onPressed: () => _showBookingNotification(
-              'Teste • Barbearia Mr Jone',
-              'Notificações ativas no dispositivo.',
-              999,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _syncAll,
-          ),
-        ],
+    return Card(
+      color: const Color(0xFF141417),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0x33D4AF37), width: 1),
       ),
-      body: tabs[_tabIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _tabIndex,
-        onTap: (idx) => setState(() => _tabIndex = idx),
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: const Color(0xFF141417),
-        selectedItemColor: gold,
-        unselectedItemColor: Colors.white60,
-        items: const [
-          BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet), label: 'Contábil'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.attach_money), label: 'Preços'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.schedule), label: 'Horários'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.card_membership), label: 'Clientes/Planos'),
-          BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Barbeiros'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.settings), label: 'Ajustes'),
-        ],
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'GRADE DIÁRIA • $weekdayName ($dateBR)',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF3D97E),
+                    fontSize: 13,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _gridSelectedDate,
+                      firstDate: DateTime(2024),
+                      lastDate: DateTime(2030),
+                    );
+                    if (picked != null && mounted) {
+                      setState(() => _gridSelectedDate = picked);
+                    }
+                  },
+                  icon: const Icon(Icons.calendar_month,
+                      size: 16, color: Color(0xFFD4AF37)),
+                  label: const Text('Data'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (!isOpen || slotMinutes.isEmpty)
+              const Text(
+                'Expediente fechado neste dia. Ative na aba Horários.',
+                style: TextStyle(fontSize: 12, color: Colors.white70),
+              )
+            else
+              ...slotMinutes.map((m) {
+                final String slotStartStr = _minutesToTime(m);
+                final String slotEndStr = _minutesToTime(m + step);
+                final pauseHit = _findPauseAtSlot(_gridSelectedDate, m);
+                final bookingHit = _findBookingAtSlot(
+                  _gridSelectedDate,
+                  m,
+                  barberFilter: _gridSelectedBarberFilter,
+                );
+
+                if (pauseHit != null) {
+                  return ListTile(
+                    dense: true,
+                    title: Text('$slotStartStr–$slotEndStr • PAUSA'),
+                    subtitle: Text('${pauseHit['reason']}'),
+                  );
+                }
+
+                if (bookingHit != null) {
+                  final bk = bookingHit['booking'] as Map<String, dynamic>;
+                  return ListTile(
+                    dense: true,
+                    tileColor: const Color(0xFF231D09),
+                    title: Text(
+                      '$slotStartStr–$slotEndStr • ${bk['clientName'] ?? 'Cliente'}',
+                      style: const TextStyle(color: Color(0xFFF3D97E)),
+                    ),
+                    subtitle: Text(
+                      'Barbeiro: ${bk['barberName'] ?? 'Jhonny'} • ${_buildServiceSummary(bk)}',
+                    ),
+                    trailing: TextButton(
+                      onPressed: () => _openManualEntryDialog(
+                        presetDateStr: dateBR,
+                        presetTimeStr: slotStartStr,
+                      ),
+                      child: const Text('Encaixar'),
+                    ),
+                  );
+                }
+
+                return ListTile(
+                  dense: true,
+                  title: Text('$slotStartStr–$slotEndStr • LIVRE'),
+                  trailing: TextButton(
+                    onPressed: () => _openManualEntryDialog(
+                      presetDateStr: dateBR,
+                      presetTimeStr: slotStartStr,
+                    ),
+                    child: const Text('+ Marcar / Encaixar'),
+                  ),
+                );
+              }),
+          ],
+        ),
       ),
     );
   }
 }
-
-        
