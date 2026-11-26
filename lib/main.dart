@@ -82,7 +82,8 @@ final Map<String, Map> kDefaultExpediente = {
     't2Fim': '18:00',
   },
 };
- final List kDefaultServices = [
+
+final List kDefaultServices = [
   {
     'id': 'def_srv_1',
     'name': 'Cabelo e Barba (Combo Completo)',
@@ -186,7 +187,7 @@ final List kDefaultPlans = [
     'sessionsPerMonth': 4,
   },
 ];
- final FlutterLocalNotificationsPlugin kNotificationsPlugin =
+final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
 Future<void> _initNotifications() async {
@@ -249,7 +250,8 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
- @pragma('vm:entry-point')
+
+@pragma('vm:entry-point')
 void _onStartBackground(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
   await _initNotifications();
@@ -336,7 +338,6 @@ void main() async {
   await _initBackgroundService();
   runApp(const MrJoneGestaoApp());
 }
-
 class MrJoneGestaoApp extends StatelessWidget {
   const MrJoneGestaoApp({super.key});
 
@@ -357,7 +358,8 @@ class MrJoneGestaoApp extends StatelessWidget {
     );
   }
 }
- class GestaoHomePage extends StatefulWidget {
+
+class GestaoHomePage extends StatefulWidget {
   const GestaoHomePage({super.key});
 
   @override
@@ -371,6 +373,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
   bool _onlyCompletedInAccounting = true;
   String _barberReportPeriod = 'mensal';
+
+  // Data e barbeiro selecionados para a grade visual de horários (estilo agenda / Cashbarber)
+  DateTime _gridSelectedDate = DateTime.now();
+  String _gridSelectedBarberFilter = 'TODOS';
 
   String _statusMsg = 'A aguardar ligação ao Firebase';
   String _adminPass = kDefaultAdminPass;
@@ -426,8 +432,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       (_) => _fetchBookings(silent: true),
     );
   }
-
-  Future<void> _loadSavedSessionAndPass() async {
+     Future<void> _loadSavedSessionAndPass() async {
     final prefs = await SharedPreferences.getInstance();
     final savedPass = prefs.getString(kPrefAdminPass);
     final wasLoggedIn = prefs.getBool(kPrefLoggedIn) ?? false;
@@ -476,7 +481,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _startActiveSession();
     }
   }
-      Future<void> _saveExpedienteAndSync() async {
+
+  Future<void> _saveExpedienteAndSync() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kPrefExpediente, jsonEncode(_expediente));
     await prefs.setInt(kPrefSlotStep, _slotStepMinutes);
@@ -727,7 +733,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       });
     } catch (_) {}
   }
-      Future<void> _syncAll() async {
+
+  Future<void> _syncAll() async {
     setState(() {
       _loading = true;
       _statusMsg = 'A sincronizar dados com o Firebase...';
@@ -746,8 +753,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           'Sincronizado • ${_bookings.length} marcação(ões) • ${_clients.length} cliente(s) • ${_planMembers.length} no plano';
     });
   }
-
-  Future<void> _fetchBookings({bool silent = false}) async {
+      Future<void> _fetchBookings({bool silent = false}) async {
     if (!silent) {
       setState(() {
         _loading = true;
@@ -837,7 +843,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
     }
   }
-      Future<void> _fetchCatalog() async {
+
+  Future<void> _fetchCatalog() async {
     try {
       final srvRes = await http.get(Uri.parse('$kFirebaseDbUrl/services.json'));
       final plnRes = await http.get(Uri.parse('$kFirebaseDbUrl/plans.json'));
@@ -923,7 +930,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       setState(() => _barbers = list);
     } catch (_) {}
   }
-      DateTime? _parseDateString(String raw) {
+     DateTime? _parseDateString(String raw) {
     final clean = raw.trim();
     if (clean.isEmpty) return null;
     final slash = clean.split('/');
@@ -948,6 +955,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return null;
   }
 
+  String _formatDateBR(DateTime dt) {
+    final dd = dt.day.toString().padLeft(2, '0');
+    final mm = dt.month.toString().padLeft(2, '0');
+    return '$dd/$mm/${dt.year}';
+  }
+
   Map? _findPlanMember({String? clientName, String? clientPhone}) {
     final normPhone = _normalizePhone(clientPhone ?? '');
     final cleanName = (clientName ?? '').trim().toLowerCase();
@@ -967,7 +980,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return null;
   }
 
-  // Retorna true apenas se estiver marcado como ativo E dentro da data de validade
   bool _isPlanMemberValid(Map member) {
     if (member['active'] == false) return false;
     final expDt = _parseDateString((member['expiresAt'] ?? '').toString());
@@ -978,9 +990,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return !expiry.isBefore(today);
   }
 
-  // - Plano válido: libera APENAS opções do plano (bloqueia avulsos)
-  // - Plano vencido/inativo: libera APENAS serviços avulsos (bloqueia plano)
-  // - Sem registro em plano: libera avulsos e planos
   List _allowedCatalogOptions({String? clientName, String? clientPhone}) {
     final member = _findPlanMember(
       clientName: clientName,
@@ -1026,7 +1035,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           }
         ];
       } else {
-        // Plano vencido ou inativo -> permite apenas avulsos
         final List avulsosOnly = [];
         for (final s in _services) {
           if (s is! Map) continue;
@@ -1066,7 +1074,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     }
     return all;
   }
-      Future<void> _saveManualClient({
+
+  Future<void> _saveManualClient({
     String? existingId,
     required String name,
     required String phone,
@@ -1161,7 +1170,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     await http.delete(Uri.parse('$kFirebaseDbUrl/plan_members/$id.json'));
     await _fetchClientsAndPlanMembers();
   }
-      Future<void> _openClientDialog({Map? client}) async {
+     Future<void> _openClientDialog({Map? client}) async {
     final nameCtrl =
         TextEditingController(text: (client?['name'] ?? '').toString());
     final phoneCtrl =
@@ -1230,8 +1239,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
 
     final defaultExpiry = DateTime.now().add(const Duration(days: 30));
-    final defExpStr =
-        '${defaultExpiry.day.toString().padLeft(2, '0')}/${defaultExpiry.month.toString().padLeft(2, '0')}/${defaultExpiry.year}';
+    final defExpStr = _formatDateBR(defaultExpiry);
     final expiryCtrl = TextEditingController(
       text: (existingMember?['expiresAt'] ?? defExpStr).toString(),
     );
@@ -1338,8 +1346,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         );
                         if (picked != null) {
                           setLocal(() {
-                            expiryCtrl.text =
-                                '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}';
+                            expiryCtrl.text = _formatDateBR(picked);
                           });
                         }
                       },
@@ -1438,6 +1445,77 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final y = (b ?? '').trim().toLowerCase();
     if (x.isEmpty || y.isEmpty) return true;
     return x == y || x.contains(y) || y.contains(x);
+  }
+
+  bool _isSameDay(DateTime? a, DateTime b) {
+    if (a == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  // Encontra o agendamento que ocupa ou começa no minuto `slotMin` na data e barbeiro escolhidos
+  Map? _findBookingAtSlot(
+    DateTime day,
+    int slotMin, {
+    String barberFilter = 'TODOS',
+  }) {
+    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
+    final int slotEnd = slotMin + step;
+
+    for (final b in _bookings) {
+      if (b is! Map) continue;
+      final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
+      if (st == 'cancelado') continue;
+
+      final bDt = _parseBookingDate(b);
+      if (!_isSameDay(bDt, day)) continue;
+
+      if (barberFilter != 'TODOS' &&
+          !_sameBarberName(b['barberName']?.toString(), barberFilter)) {
+        continue;
+      }
+
+      final startMin = _timeToMinutes((b['time'] ?? '').toString());
+      if (startMin == null) continue;
+      final dur = _bookingDurationMinutes(b);
+      final endMin = startMin + dur;
+
+      if (slotMin < endMin && slotEnd > startMin) {
+        return {
+          'booking': b,
+          'startMin': startMin,
+          'endMin': endMin,
+          'startStr': _minutesToTime(startMin),
+          'endStr': _minutesToTime(endMin),
+          'isStart': slotMin == startMin,
+        };
+      }
+    }
+    return null;
+  }
+
+  // Verifica se há pausa / bloqueio nesse slot
+  Map? _findPauseAtSlot(DateTime day, int slotMin) {
+    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
+    final int slotEnd = slotMin + step;
+
+    for (final p in _pauses) {
+      if (p is! Map) continue;
+      final pDt = _parseDateString((p['date'] ?? '').toString());
+      if (pDt != null && !_isSameDay(pDt, day)) continue;
+
+      final ps = _timeToMinutes((p['start'] ?? '').toString());
+      final pe = _timeToMinutes((p['end'] ?? '').toString());
+      if (ps != null && pe != null && pe > ps) {
+        if (slotMin < pe && slotEnd > ps) {
+          return {
+            'reason': (p['reason'] ?? 'Pausa / Bloqueio').toString(),
+            'startStr': _minutesToTime(ps),
+            'endStr': _minutesToTime(pe),
+          };
+        }
+      }
+    }
+    return null;
   }
 
   List<String> _getAvailableSlots({
@@ -1541,8 +1619,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
     return available;
   }
-
-  bool _isCompletedStatus(Map b) {
+      bool _isCompletedStatus(Map b) {
     final st = (b['status'] ?? '').toString().trim().toLowerCase();
     return st == 'concluído' || st == 'concluido';
   }
@@ -1906,16 +1983,27 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     await http.delete(Uri.parse('$kFirebaseDbUrl/bookings/$firebaseKey.json'));
     await _fetchBookings(silent: true);
   }
+      Future<void> _openManualEntryDialog({
+    String? presetDateStr,
+    String? presetTimeStr,
+    String? presetBarberName,
+  }) async {
+    final now = DateTime.now();
+    final hh = now.hour.toString().padLeft(2, '0');
+    final mm = now.minute.toString().padLeft(2, '0');
+    final defaultDateStr = presetDateStr ?? _formatDateBR(now);
+    final defaultTimeStr = presetTimeStr ?? '$hh:$mm';
 
-  Future<void> _openManualEntryDialog() async {
     final clientCtrl = TextEditingController(text: 'Cliente Balcão');
     final phoneCtrl = TextEditingController(text: '');
-    String selectedBarberName = _barbers.isNotEmpty
-        ? (_barbers.first['name'] ?? 'Mr. Jone').toString()
-        : 'Mr. Jone';
-    double selectedCommPct = _barbers.isNotEmpty
-        ? (double.tryParse('${_barbers.first['commission'] ?? 50}') ?? 50)
-        : 50;
+    final dateCtrl = TextEditingController(text: defaultDateStr);
+    final timeCtrl = TextEditingController(text: defaultTimeStr);
+
+    String selectedBarberName = presetBarberName ??
+        (_barbers.isNotEmpty
+            ? (_barbers.first['name'] ?? 'Mr. Jone').toString()
+            : 'Mr. Jone');
+    double selectedCommPct = _getBarberCommissionPct(selectedBarberName);
 
     await showDialog(
       context: context,
@@ -2002,6 +2090,28 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: dateCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Data (dd/mm/aaaa)',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: timeCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Horário (HH:MM)',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   if (_barbers.isNotEmpty)
                     DropdownButtonFormField<int>(
@@ -2101,13 +2211,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     return;
                   }
 
-                  final now = DateTime.now();
-                  final hh = now.hour.toString().padLeft(2, '0');
-                  final mm = now.minute.toString().padLeft(2, '0');
-                  final dd = now.day.toString().padLeft(2, '0');
-                  final mo = now.month.toString().padLeft(2, '0');
-                  final dateStr = '$dd/$mo/${now.year}';
-                  final timeStr = '$hh:$mm';
+                  final dateStr = dateCtrl.text.trim().isEmpty
+                      ? defaultDateStr
+                      : dateCtrl.text.trim();
+                  final timeStr = timeCtrl.text.trim().isEmpty
+                      ? defaultTimeStr
+                      : timeCtrl.text.trim();
                   final cName = clientCtrl.text.trim().isEmpty
                       ? 'Cliente Balcão'
                       : clientCtrl.text.trim();
@@ -2133,6 +2242,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       'clientPhone': cPhone,
                       'barberName': selectedBarberName,
                       'dateLabel': dateStr,
+                      'date': dateStr,
                       'time': timeStr,
                       'status': 'confirmado',
                       'attended': false,
@@ -2167,8 +2277,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         },
       ),
     );
-  }
-     Future<void> _openEditBookingDialog(Map b) async {
+      }
+         Future<void> _openEditBookingDialog(Map b) async {
     final String firebaseKey = (b['firebaseKey'] ?? '').toString();
     if (firebaseKey.isEmpty) return;
 
@@ -2249,9 +2359,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         lastDate: DateTime(2030),
       );
       if (picked != null) {
-        final dd = picked.day.toString().padLeft(2, '0');
-        final mm = picked.month.toString().padLeft(2, '0');
-        dateCtrl.text = '$dd/$mm/${picked.year}';
+        dateCtrl.text = _formatDateBR(picked);
       }
     }
 
@@ -2622,8 +2730,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         },
       ),
     );
-  }
-      Future<void> _saveCatalogItem({
+    }
+        Future<void> _saveCatalogItem({
     required bool isPlan,
     String? existingId,
     required String name,
@@ -2977,7 +3085,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   Future<void> _openAddPauseDialog() async {
-    final dateCtrl = TextEditingController(text: '24/11/2026');
+    final dateCtrl = TextEditingController(text: _formatDateBR(_gridSelectedDate));
     final startCtrl = TextEditingController(text: '12:00');
     final endCtrl = TextEditingController(text: '13:00');
     final reasonCtrl = TextEditingController(text: 'Almoço / Pausa');
@@ -3041,7 +3149,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildHeaderBanner() {
+     Widget _buildHeaderBanner() {
     return Container(
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.only(bottom: 10),
@@ -3074,6 +3182,324 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             style: const TextStyle(fontSize: 12, color: Colors.white70),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleGridSection() {
+    final String expKey = _expedienteKeyForDate(_gridSelectedDate);
+    final Map dayExp = _expediente[expKey] ?? {};
+    final bool isOpen = dayExp['ativo'] == true;
+    final String dateBR = _formatDateBR(_gridSelectedDate);
+
+    final List> turnos = [];
+    final t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
+    final t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
+    if (t1s != null && t1e != null && t1e > t1s) {
+      turnos.add({'start': t1s, 'end': t1e});
+    }
+    if (dayExp['t2Ativo'] == true) {
+      final t2s = _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
+      final t2e = _timeToMinutes((dayExp['t2Fim'] ?? '19:30').toString());
+      if (t2s != null && t2e != null && t2e > t2s) {
+        turnos.add({'start': t2s, 'end': t2e});
+      }
+    }
+
+    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
+    final List<int> slotMinutes = [];
+    for (final t in turnos) {
+      for (int m = t['start']!; m < t['end']!; m += step) {
+        if (!slotMinutes.contains(m)) slotMinutes.add(m);
+      }
+    }
+
+    final List<String> barberFilterOptions = ['TODOS'];
+    for (final b in _barbers) {
+      if (b is Map && (b['name'] ?? '').toString().trim().isNotEmpty) {
+        barberFilterOptions.add((b['name'] ?? '').toString().trim());
+      }
+    }
+    if (!barberFilterOptions.contains(_gridSelectedBarberFilter)) {
+      _gridSelectedBarberFilter = 'TODOS';
+    }
+
+    return Card(
+      color: const Color(0xFF141417),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF2D2716), width: 1),
+      ),
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'GRADE DE HORÁRIOS (EXPEDIENTE)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF3D97E),
+                    fontSize: 13,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _gridSelectedDate,
+                      firstDate: DateTime(2024),
+                      lastDate: DateTime(2030),
+                    );
+                    if (picked != null && mounted) {
+                      setState(() => _gridSelectedDate = picked);
+                    }
+                  },
+                  icon: const Icon(Icons.calendar_month,
+                      size: 16, color: Color(0xFFD4AF37)),
+                  label: Text(
+                    dateBR,
+                    style: const TextStyle(
+                        color: Color(0xFFF3D97E), fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(
+              height: 44,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: 14,
+                itemBuilder: (ctx, i) {
+                  final d = DateTime.now().add(Duration(days: i));
+                  final selected = _isSameDay(d, _gridSelectedDate);
+                  final kDia = _expedienteKeyForDate(d);
+                  final aberto = _expediente[kDia]?['ativo'] == true;
+                  final nomeDia = (_expediente[kDia]?['name'] ?? '').toString();
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      selected: selected,
+                      selectedColor: const Color(0xFFD4AF37),
+                      backgroundColor: const Color(0xFF1B1B20),
+                      label: Text(
+                        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} • ${nomeDia.length >= 3 ? nomeDia.substring(0, 3) : nomeDia}${aberto ? '' : ' (Fech.)'}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: selected ? Colors.black : Colors.white,
+                          fontWeight:
+                              selected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      onSelected: (_) => setState(() => _gridSelectedDate = d),
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (barberFilterOptions.length > 1) ...[
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: barberFilterOptions.map((bf) {
+                    final sel = _gridSelectedBarberFilter == bf;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        selected: sel,
+                        selectedColor: const Color(0xFFD4AF37),
+                        backgroundColor: const Color(0xFF1B1B20),
+                        label: Text(
+                          bf == 'TODOS' ? 'Todos os Barbeiros' : bf,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: sel ? Colors.black : Colors.white,
+                            fontWeight:
+                                sel ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        onSelected: (_) =>
+                            setState(() => _gridSelectedBarberFilter = bf),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            if (!isOpen || slotMinutes.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0E0E11),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'Expediente fechado neste dia. Ative o dia na aba Horários para liberar a grade.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+              )
+            else
+              ...slotMinutes.map((m) {
+                final String slotStartStr = _minutesToTime(m);
+                final String slotEndStr = _minutesToTime(m + step);
+                final pauseHit = _findPauseAtSlot(_gridSelectedDate, m);
+                final bookingHit = _findBookingAtSlot(
+                  _gridSelectedDate,
+                  m,
+                  barberFilter: _gridSelectedBarberFilter,
+                );
+
+                if (pauseHit != null) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 9),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF231818),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orangeAccent.withOpacity(0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          '$slotStartStr–$slotEndStr',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: Colors.orangeAccent),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'PAUSA: ${pauseHit['reason']} (${pauseHit['startStr']} às ${pauseHit['endStr']})',
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.white70),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                if (bookingHit != null) {
+                  final Map bk = bookingHit['booking'] as Map;
+                  final String cName = (bk['clientName'] ?? 'Cliente').toString();
+                  final String bName =
+                      (bk['barberName'] ?? 'Mr. Jone').toString();
+                  final String bStart = bookingHit['startStr'].toString();
+                  final String bEnd = bookingHit['endStr'].toString();
+                  final String srvSum = _buildServiceSummary(bk);
+                  final String st = (bk['status'] ?? 'confirmado').toString();
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF231C08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFD4AF37)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD4AF37),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '$bStart\naté\n$bEnd',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                              height: 1.15,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$cName • $bStart às $bEnd',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFF3D97E),
+                                  fontSize: 13,
+                                ),
+                              ),
+                              Text(
+                                '$srvSum • $bName ($st)',
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.white70),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Reagendar / Editar',
+                          icon: const Icon(Icons.edit_calendar,
+                              color: Color(0xFFF3D97E), size: 20),
+                          onPressed: () => _openEditBookingDialog(bk),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                // Slot livre na grade: toca para encaixar atendimento nesse horário
+                return InkWell(
+                  onTap: () => _openManualEntryDialog(
+                    presetDateStr: dateBR,
+                    presetTimeStr: slotStartStr,
+                    presetBarberName: _gridSelectedBarberFilter == 'TODOS'
+                        ? null
+                        : _gridSelectedBarberFilter,
+                  ),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 5),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0E0E11),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '$slotStartStr – $slotEndStr',
+                          style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white70),
+                        ),
+                        const Text(
+                          'LIVRE • + Encaixar',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.greenAccent,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+          ],
+        ),
       ),
     );
   }
@@ -3206,6 +3632,31 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
+                            color: Colors.greenAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Card(
+                  color: const Color(0xFF141417),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('LÍQUIDO CASA',
+                            style: TextStyle(fontSize: 11)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'R\$ ${liquidoCasa.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
                             color: Color(0xFFF3D97E),
                           ),
                         ),
@@ -3222,7 +3673,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               backgroundColor: const Color(0xFFD4AF37),
               foregroundColor: Colors.black,
             ),
-            onPressed: _openManualEntryDialog,
+            onPressed: () => _openManualEntryDialog(),
             icon: const Icon(Icons.add_card),
             label: const Text('Registar Atendimento Manual (Balcão / Plano)'),
           ),
@@ -3244,6 +3695,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             ),
           ),
           const SizedBox(height: 12),
+          _buildScheduleGridSection(),
           const Text(
             'AGENDA & ATENDIMENTOS',
             style: TextStyle(
@@ -3367,8 +3819,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Widget _buildCatalogTab() {
+      Widget _buildCatalogTab() {
     return RefreshIndicator(
       onRefresh: _fetchCatalog,
       child: ListView(
@@ -3586,8 +4037,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-
-  Widget _buildClientsAndPlansTab() {
+      Widget _buildClientsAndPlansTab() {
     return RefreshIndicator(
       onRefresh: _fetchClientsAndPlanMembers,
       child: ListView(
@@ -3892,6 +4342,18 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
+                              tooltip: 'Relatório detalhado',
+                              icon: const Icon(Icons.assessment,
+                                  color: Colors.greenAccent),
+                              onPressed: () =>
+                                  _openBarberReportDialog(name, commPct),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit,
+                                  color: Color(0xFFF3D97E)),
+                              onPressed: () => _openBarberDialog(barber: b),
+                            ),
+                            IconButton(
                               icon: const Icon(Icons.delete,
                                   color: Colors.redAccent),
                               onPressed: () =>
@@ -3920,8 +4382,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
-  Widget _buildSettingsTab() {
+      Widget _buildSettingsTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
