@@ -220,9 +220,9 @@ final List<JsonMap> kDefaultBarbers = [
     'active': true,
   },
 ];
+
 final FlutterLocalNotificationsPlugin kNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
-
 String _normalizePhoneShared(String raw) {
   final digits = raw.replaceAll(RegExp(r'\D'), '');
   if (digits.length >= 10 && !digits.startsWith('55')) {
@@ -251,6 +251,10 @@ String _canonicalBarberKeyShared(String raw) {
       n == 'mr jone' ||
       n == 'mrjone' ||
       n == 'jhonny' ||
+      n == 'jony' ||
+      n == 'jonny' ||
+      n == 'sem preferencia' ||
+      n == 'qualquer' ||
       n == 'barbearia mr jone') {
     return 'jhonny';
   }
@@ -258,11 +262,31 @@ String _canonicalBarberKeyShared(String raw) {
 }
 
 String _extractBookingDateRaw(Map b) {
-  for (final k in ['dateLabel', 'date', 'data', 'dia', 'bookingDate']) {
-    final v = (b[k] ?? '').toString().trim();
+  for (final k in [
+    'dateLabel',
+    'date',
+    'data',
+    'dia',
+    'bookingDate',
+    'selectedDate',
+    'dataAgendamento',
+    'day',
+  ]) {
+    final val = b[k];
+    if (val == null) continue;
+    if (val is int) {
+      final dt = DateTime.fromMillisecondsSinceEpoch(
+        val < 100000000000 ? val * 1000 : val,
+      );
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+    }
+    final v = val.toString().trim();
     if (v.isNotEmpty) return v;
   }
-  final created = (b['createdAt'] ?? '').toString().trim();
+  final parentHint = (b['_parentDateHint'] ?? '').toString().trim();
+  if (parentHint.isNotEmpty) return parentHint;
+
+  final created = (b['createdAt'] ?? b['timestamp'] ?? '').toString().trim();
   if (created.isNotEmpty) {
     final dt = DateTime.tryParse(created);
     if (dt != null) {
@@ -273,43 +297,91 @@ String _extractBookingDateRaw(Map b) {
 }
 
 String _extractBookingTimeRaw(Map b) {
-  for (final k in ['time', 'hora', 'horario', 'slot', 'startTime']) {
+  for (final k in [
+    'time',
+    'hora',
+    'horario',
+    'slot',
+    'startTime',
+    'horaInicio',
+    'selectedTime',
+    'timeSlot',
+  ]) {
     final v = (b[k] ?? '').toString().trim();
     if (v.isNotEmpty) {
-      final match = RegExp(r'(\d{1,2}:\d{2})').firstMatch(v);
-      return match != null ? match.group(1)! : v;
+      final match = RegExp(r'(\d{1,2}[:hH]\d{2})').firstMatch(v);
+      if (match != null) {
+        return match.group(1)!.replaceAll(RegExp(r'[hH]'), ':');
+      }
+      return v;
     }
   }
   return '';
 }
 
 String _extractBookingClientName(Map b) {
-  for (final k in ['clientName', 'name', 'cliente', 'nome']) {
+  for (final k in [
+    'clientName',
+    'name',
+    'cliente',
+    'nome',
+    'customerName',
+    'userName',
+    'nomeCliente',
+  ]) {
     final v = (b[k] ?? '').toString().trim();
     if (v.isNotEmpty) return v;
   }
-  return 'Cliente';
+  if (b['client'] is Map) {
+    final nested = (b['client']['name'] ?? b['client']['nome'] ?? '')
+        .toString()
+        .trim();
+    if (nested.isNotEmpty) return nested;
+  }
+  return 'Cliente Site';
 }
 
 String _extractBookingClientPhone(Map b) {
-  for (final k in ['clientPhone', 'phone', 'telefone', 'whatsapp', 'fone']) {
+  for (final k in [
+    'clientPhone',
+    'phone',
+    'telefone',
+    'whatsapp',
+    'fone',
+    'celular',
+    'tel',
+    'contact',
+  ]) {
     final v = (b[k] ?? '').toString().trim();
     if (v.isNotEmpty) return v;
+  }
+  if (b['client'] is Map) {
+    final nested = (b['client']['phone'] ?? b['client']['whatsapp'] ?? '')
+        .toString()
+        .trim();
+    if (nested.isNotEmpty) return nested;
   }
   return '';
 }
 
 String _extractBookingBarberRaw(Map b) {
-  for (final k in ['barberName', 'barber', 'barbeiro', 'profissional']) {
+  for (final k in [
+    'barberName',
+    'barber',
+    'barbeiro',
+    'profissional',
+    'professional',
+    'staff',
+  ]) {
     final v = (b[k] ?? '').toString().trim();
     if (v.isNotEmpty) return v;
   }
   return 'Jhonny';
 }
-
 String _normalizeTimeShared(String raw) {
-  final match = RegExp(r'(\d{1,2}:\d{2})').firstMatch(raw.trim());
-  final clean = match != null ? match.group(1)! : raw.trim();
+  final cleanInput = raw.trim().replaceAll(RegExp(r'[hH]'), ':');
+  final match = RegExp(r'(\d{1,2}:\d{2})').firstMatch(cleanInput);
+  final clean = match != null ? match.group(1)! : cleanInput;
   final parts = clean.split(':');
   if (parts.length >= 2) {
     final h = int.tryParse(parts[0].trim());
@@ -322,50 +394,44 @@ String _normalizeTimeShared(String raw) {
 }
 
 String _normalizeDateShared(String raw) {
-  final clean = raw.trim();
-  final slash = clean.split('/');
-  if (slash.length == 3) {
-    final d = int.tryParse(slash[0].trim());
-    final m = int.tryParse(slash[1].trim());
-    int? y = int.tryParse(slash[2].trim());
-    if (y != null && y < 100) y += 2000;
-    if (d != null && m != null && y != null) {
-      return '${d.toString().padLeft(2, '0')}/${m.toString().padLeft(2, '0')}/$y';
-    }
+  final parsed = _parseDateShared(raw);
+  if (parsed != null) {
+    return _formatDateBRShared(parsed);
   }
-  final dash = clean.split('-');
-  if (dash.length == 3) {
-    final y = int.tryParse(dash[0].trim());
-    final m = int.tryParse(dash[1].trim());
-    final d = int.tryParse(dash[2].trim());
-    if (d != null && m != null && y != null) {
-      return '${d.toString().padLeft(2, '0')}/${m.toString().padLeft(2, '0')}/$y';
-    }
-  }
-  return clean.toLowerCase();
+  return raw.trim().toLowerCase();
 }
 
 DateTime? _parseDateShared(String raw) {
   final clean = raw.trim();
   if (clean.isEmpty) return null;
-  final slash = clean.split('/');
-  if (slash.length == 3) {
-    final d = int.tryParse(slash[0].trim());
-    final m = int.tryParse(slash[1].trim());
-    int? y = int.tryParse(slash[2].trim());
-    if (y != null && y < 100) y += 2000;
-    if (d != null && m != null && y != null) {
-      return DateTime(y, m, d);
+
+  final brMatch = RegExp(r'(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})')
+      .firstMatch(clean);
+  if (brMatch != null) {
+    final p1 = int.tryParse(brMatch.group(1)!);
+    final p2 = int.tryParse(brMatch.group(2)!);
+    int? p3 = int.tryParse(brMatch.group(3)!);
+    if (p1 != null && p2 != null && p3 != null) {
+      if (brMatch.group(1)!.length == 4) {
+        return DateTime(p1, p2, p3);
+      }
+      if (p3 < 100) p3 += 2000;
+      return DateTime(p3, p2, p1);
     }
   }
-  final dash = clean.split('-');
-  if (dash.length == 3) {
-    final y = int.tryParse(dash[0].trim());
-    final m = int.tryParse(dash[1].trim());
-    final d = int.tryParse(dash[2].trim());
-    if (d != null && m != null && y != null) {
-      return DateTime(y, m, d);
+
+  final shortBr = RegExp(r'(\d{1,2})/(\d{1,2})').firstMatch(clean);
+  if (shortBr != null) {
+    final d = int.tryParse(shortBr.group(1)!);
+    final m = int.tryParse(shortBr.group(2)!);
+    if (d != null && m != null) {
+      return DateTime(DateTime.now().year, m, d);
     }
+  }
+
+  final iso = DateTime.tryParse(clean);
+  if (iso != null) {
+    return DateTime(iso.year, iso.month, iso.day);
   }
   return null;
 }
@@ -374,6 +440,74 @@ String _formatDateBRShared(DateTime dt) {
   final dd = dt.day.toString().padLeft(2, '0');
   final mm = dt.month.toString().padLeft(2, '0');
   return '$dd/$mm/${dt.year}';
+}
+
+bool _looksLikeBookingLeaf(Map m) {
+  final hasTime = _extractBookingTimeRaw(m).isNotEmpty;
+  final hasClientOrDate = m.containsKey('clientName') ||
+      m.containsKey('name') ||
+      m.containsKey('cliente') ||
+      m.containsKey('nome') ||
+      m.containsKey('date') ||
+      m.containsKey('dateLabel') ||
+      m.containsKey('data') ||
+      m.containsKey('serviceName') ||
+      m.containsKey('service');
+  return hasTime && hasClientOrDate;
+}
+
+void _collectBookingLeavesRecursive(
+  dynamic node,
+  List<JsonMap> out, {
+  String pathPrefix = '',
+  String parentDateHint = '',
+  String sourceNode = 'bookings',
+}) {
+  if (node is Map) {
+    if (_looksLikeBookingLeaf(node)) {
+      final item = JsonMap.from(node);
+      final keyId = pathPrefix.isNotEmpty
+          ? pathPrefix
+          : (item['id'] ??
+                  item['bookingId'] ??
+                  'site_${DateTime.now().millisecondsSinceEpoch}')
+              .toString();
+      item['firebaseKey'] = keyId;
+      item['_sourceNode'] = sourceNode;
+      if (parentDateHint.isNotEmpty &&
+          (item['_parentDateHint'] ?? '').toString().isEmpty) {
+        item['_parentDateHint'] = parentDateHint;
+      }
+      out.add(item);
+      return;
+    }
+
+    node.forEach((k, v) {
+      final kStr = k.toString();
+      final nextDateHint = _parseDateShared(kStr) != null
+          ? _formatDateBRShared(_parseDateShared(kStr)!)
+          : parentDateHint;
+      final nextPath = pathPrefix.isEmpty ? kStr : '$pathPrefix/$kStr';
+      _collectBookingLeavesRecursive(
+        v,
+        out,
+        pathPrefix: nextPath,
+        parentDateHint: nextDateHint,
+        sourceNode: sourceNode,
+      );
+    });
+  } else if (node is List) {
+    for (int i = 0; i < node.length; i++) {
+      final nextPath = pathPrefix.isEmpty ? '$i' : '$pathPrefix/$i';
+      _collectBookingLeavesRecursive(
+        node[i],
+        out,
+        pathPrefix: nextPath,
+        parentDateHint: parentDateHint,
+        sourceNode: sourceNode,
+      );
+    }
+  }
 }
 
 String _bookingDedupeKey(Map b, String firebaseKey) {
@@ -405,24 +539,20 @@ int _bookingStatusPriority(Map b) {
   if (st == 'concluído' || st == 'concluido') return 4;
   if (st == 'confirmado') return 3;
   if (st == 'não concluído' || st == 'nao concluido') return 2;
-  if (st == 'cancelado') return 1;
+  if (st == 'cancelado' || st == 'cancelada') return 1;
   return 0;
 }
 
-List<JsonMap> _deduplicateBookingsMap(Map decoded) {
+List<JsonMap> _deduplicateBookingsList(List<JsonMap> rawItems) {
   final Map<String, JsonMap> byDedupe = {};
 
-  decoded.forEach((key, val) {
-    if (val is! Map) return;
-    final k = key.toString();
-    final item = JsonMap.from(val);
-    item['firebaseKey'] = k;
-
+  for (final item in rawItems) {
+    final k = (item['firebaseKey'] ?? '').toString();
     final dKey = _bookingDedupeKey(item, k);
     final existing = byDedupe[dKey];
 
     if (existing == null) {
-      item['_mergedFirebaseKeys'] = <String>[k];
+      item['_mergedFirebaseKeys'] = <String>[if (k.isNotEmpty) k];
       byDedupe[dKey] = item;
     } else {
       final prevPrio = _bookingStatusPriority(existing);
@@ -439,7 +569,7 @@ List<JsonMap> _deduplicateBookingsMap(Map decoded) {
         ...((existing['_mergedFirebaseKeys'] as List?)
                 ?.map((e) => e.toString()) ??
             [(existing['firebaseKey'] ?? '').toString()]),
-        k,
+        if (k.isNotEmpty) k,
       }.where((e) => e.isNotEmpty).toList();
 
       if (currentIsBetter) {
@@ -449,7 +579,7 @@ List<JsonMap> _deduplicateBookingsMap(Map decoded) {
         existing['_mergedFirebaseKeys'] = mergedKeys;
       }
     }
-  });
+  }
 
   final result = byDedupe.values.toList();
   result.sort((a, b) {
@@ -462,6 +592,79 @@ List<JsonMap> _deduplicateBookingsMap(Map decoded) {
   });
   return result;
 }
+Future<List<JsonMap>> _fetchAllBookingsFromRemote() async {
+  final List<JsonMap> rawCollected = [];
+  final ts = DateTime.now().millisecondsSinceEpoch;
+
+  final endpoints = [
+    {'node': 'bookings', 'url': '$kFirebaseDbUrl/bookings.json?t=$ts'},
+    {'node': 'site_bookings', 'url': '$kFirebaseDbUrl/site_bookings.json?t=$ts'},
+    {'node': 'agendamentos', 'url': '$kFirebaseDbUrl/agendamentos.json?t=$ts'},
+  ];
+
+  final responses = await Future.wait(
+    endpoints.map((e) => http.get(Uri.parse(e['url']!)).catchError(
+          (_) => http.Response('null', 500),
+        )),
+  );
+
+  for (int i = 0; i < responses.length; i++) {
+    final res = responses[i];
+    final nodeName = endpoints[i]['node']!;
+    if (res.statusCode == 200 && res.body != 'null' && res.body.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(res.body);
+        _collectBookingLeavesRecursive(
+          decoded,
+          rawCollected,
+          sourceNode: nodeName,
+        );
+      } catch (_) {}
+    }
+  }
+
+  final deduped = _deduplicateBookingsList(rawCollected);
+
+  // Garante que qualquer marcação vinda apenas de site_bookings ou agendamentos seja espelhada em /bookings
+  for (final item in deduped) {
+    if (item['_sourceNode'] != 'bookings') {
+      final normDate = _normalizeDateShared(_extractBookingDateRaw(item));
+      final normTime = _normalizeTimeShared(_extractBookingTimeRaw(item));
+      final clientName = _extractBookingClientName(item);
+      final normPhone = _normalizePhoneShared(_extractBookingClientPhone(item));
+      final barberRaw = _extractBookingBarberRaw(item);
+
+      final mirrorId =
+          'site_${normDate.replaceAll('/', '')}_${normTime.replaceAll(':', '')}_${_canonicalBarberKeyShared(barberRaw)}_${normPhone.isNotEmpty ? normPhone : _normalizeNameShared(clientName).replaceAll(' ', '_')}';
+
+      final mirrorPayload = {
+        ...item,
+        'firebaseKey': mirrorId,
+        'clientName': clientName,
+        'clientPhone': normPhone,
+        'phone': normPhone,
+        'dateLabel': normDate,
+        'date': normDate,
+        'time': normTime,
+        'barberName': barberRaw,
+        'status': (item['status'] ?? 'confirmado').toString(),
+        'source': 'site_sync',
+      };
+      mirrorPayload.remove('_sourceNode');
+      mirrorPayload.remove('_mergedFirebaseKeys');
+
+      unawaited(http.put(
+        Uri.parse('$kFirebaseDbUrl/bookings/$mirrorId.json'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(mirrorPayload),
+      ));
+      item['firebaseKey'] = mirrorId;
+    }
+  }
+
+  return deduped;
+}
+
 Future<void> _initNotifications() async {
   const AndroidInitializationSettings androidSettings =
       AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -522,7 +725,6 @@ Future<void> _showBookingNotification(
 
   await kNotificationsPlugin.show(id, title, body, details);
 }
-
 Future<void> _upsertClientRemote({
   required String name,
   required String phone,
@@ -691,8 +893,6 @@ Future<void> _syncPlanRulesToSiteRemote() async {
 }
 Future<void> _publishOccupiedSlotsFromBookings(List<JsonMap> bookings) async {
   try {
-    // Reconstrói /occupied_slots e /site_bookings exclusivamente com marcações ativas.
-    // Se um cliente for excluído ou cancelado no app, o horário deixa de constar aqui e fica livre no site.
     final Map<String, List<JsonMap>> byDate = {};
     final Map<String, JsonMap> activeSiteBookings = {};
 
@@ -729,7 +929,7 @@ Future<void> _publishOccupiedSlotsFromBookings(List<JsonMap> bookings) async {
       final barberRaw = _extractBookingBarberRaw(b);
       final barberCanonical = _canonicalBarberKeyShared(barberRaw);
       final clientName = _extractBookingClientName(b);
-      final fKey = (b['firebaseKey'] ?? '').toString();
+      final fKey = (b['firebaseKey'] ?? '').toString().replaceAll('/', '_');
 
       final slotObj = {
         'id': fKey,
@@ -872,61 +1072,52 @@ void _onStartBackground(ServiceInstance service) async {
       final savedList = prefs.getStringList(kPrefKnownBookingKeys) ?? [];
       final knownSet = savedList.toSet();
 
-      final uri = Uri.parse(
-        '$kFirebaseDbUrl/bookings.json?t=${DateTime.now().millisecondsSinceEpoch}',
-      );
-      final res = await http.get(uri);
-      if (res.statusCode == 200 && res.body != 'null') {
-        final decoded = jsonDecode(res.body);
-        if (decoded is Map) {
-          final deduped = _deduplicateBookingsMap(decoded);
-          await _publishOccupiedSlotsFromBookings(deduped);
+      final deduped = await _fetchAllBookingsFromRemote();
+      await _publishOccupiedSlotsFromBookings(deduped);
 
-          final List<String> currentSignatures = [];
-          final List<JsonMap> brandNew = [];
+      final List<String> currentSignatures = [];
+      final List<JsonMap> brandNew = [];
 
-          for (final item in deduped) {
-            final fKey = (item['firebaseKey'] ?? '').toString();
-            final sig = _bookingDedupeKey(item, fKey);
-            currentSignatures.add(sig);
-            currentSignatures.add('fb:$fKey');
+      for (final item in deduped) {
+        final fKey = (item['firebaseKey'] ?? '').toString();
+        final sig = _bookingDedupeKey(item, fKey);
+        currentSignatures.add(sig);
+        currentSignatures.add('fb:$fKey');
 
-            final alreadyKnown =
-                knownSet.contains(sig) || knownSet.contains('fb:$fKey');
-            if (savedList.isNotEmpty && !alreadyKnown) {
-              brandNew.add(item);
-            }
-          }
-
-          int notifId = 500;
-          for (final novo in brandNew) {
-            final client = _extractBookingClientName(novo);
-            final phone = _extractBookingClientPhone(novo);
-            final dateLbl = _extractBookingDateRaw(novo);
-            final timeLbl = _extractBookingTimeRaw(novo);
-            final barber = _extractBookingBarberRaw(novo);
-
-            await _upsertClientRemote(
-              name: client,
-              phone: phone,
-              bookingDate: dateLbl,
-              bookingTime: timeLbl,
-              incrementCount: true,
-            );
-
-            await _showBookingNotification(
-              'Novo agendamento • $client',
-              '$dateLbl às $timeLbl ($barber)',
-              notifId++,
-            );
-          }
-
-          await prefs.setStringList(
-            kPrefKnownBookingKeys,
-            currentSignatures.toSet().toList(),
-          );
+        final alreadyKnown =
+            knownSet.contains(sig) || knownSet.contains('fb:$fKey');
+        if (savedList.isNotEmpty && !alreadyKnown) {
+          brandNew.add(item);
         }
       }
+
+      int notifId = 500;
+      for (final novo in brandNew) {
+        final client = _extractBookingClientName(novo);
+        final phone = _extractBookingClientPhone(novo);
+        final dateLbl = _extractBookingDateRaw(novo);
+        final timeLbl = _extractBookingTimeRaw(novo);
+        final barber = _extractBookingBarberRaw(novo);
+
+        await _upsertClientRemote(
+          name: client,
+          phone: phone,
+          bookingDate: dateLbl,
+          bookingTime: timeLbl,
+          incrementCount: true,
+        );
+
+        await _showBookingNotification(
+          'Novo agendamento • $client',
+          '$dateLbl às $timeLbl ($barber)',
+          notifId++,
+        );
+      }
+
+      await prefs.setStringList(
+        kPrefKnownBookingKeys,
+        currentSignatures.toSet().toList(),
+      );
 
       await _syncPlanRulesToSiteRemote();
       await _checkPlanExpiryRemindersBg(prefs);
@@ -938,7 +1129,7 @@ void _onStartBackground(ServiceInstance service) async {
 
   await checkNewBookingsBg();
 
-  Timer.periodic(const Duration(seconds: 12), (_) async {
+  Timer.periodic(const Duration(seconds: 10), (_) async {
     await checkNewBookingsBg();
   });
 }
@@ -970,7 +1161,6 @@ void main() async {
   await _initBackgroundService();
   runApp(const MrJoneGestaoApp());
 }
-
 class MrJoneGestaoApp extends StatelessWidget {
   const MrJoneGestaoApp({super.key});
 
@@ -991,6 +1181,7 @@ class MrJoneGestaoApp extends StatelessWidget {
     );
   }
 }
+
 class GestaoHomePage extends StatefulWidget {
   const GestaoHomePage({super.key});
 
@@ -1109,7 +1300,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     _syncAll();
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 6),
+      const Duration(seconds: 5),
       (_) async {
         await _fetchBookings(silent: true);
         await _fetchBarbers();
@@ -1417,6 +1608,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       if (k.isNotEmpty) {
         await http.delete(Uri.parse('$kFirebaseDbUrl/bookings/$k.json'));
         await http.delete(Uri.parse('$kFirebaseDbUrl/site_bookings/$k.json'));
+        await http.delete(Uri.parse('$kFirebaseDbUrl/agendamentos/$k.json'));
       }
     }
 
@@ -1511,7 +1703,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   Future<void> _syncAll() async {
     setState(() {
       _loading = true;
-      _statusMsg = 'A sincronizar dados App ↔ Site...';
+      _statusMsg = 'A puxar marcações do site e sincronizar...';
     });
     await Future.wait([
       _fetchBookings(silent: true),
@@ -1525,7 +1717,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     setState(() {
       _loading = false;
       _statusMsg =
-          'Sincronizado • ${_bookings.length} marcação(ões) • ${_clients.length} cliente(s) salvos';
+          'Sincronizado • ${_bookings.length} marcação(ões) • ${_clients.length} cliente(s)';
     });
   }
 
@@ -1536,7 +1728,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     if (!silent) {
       setState(() {
         _loading = true;
-        _statusMsg = 'A sincronizar marcações...';
+        _statusMsg = 'A puxar marcações do site...';
       });
     }
     try {
@@ -1544,119 +1736,103 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       final savedKeys = prefs.getStringList(kPrefKnownBookingKeys) ?? [];
       _knownSignatures.addAll(savedKeys);
 
-      final uri = Uri.parse(
-        '$kFirebaseDbUrl/bookings.json?t=${DateTime.now().millisecondsSinceEpoch}',
-      );
-      final res = await http.get(uri);
-      if (res.statusCode == 200) {
-        final List<JsonMap> loaded = [];
-        final List<JsonMap> brandNew = [];
-        final Set<String> allSignatures = {};
+      final deduped = await _fetchAllBookingsFromRemote();
+      final List<JsonMap> loaded = [];
+      final List<JsonMap> brandNew = [];
+      final Set<String> allSignatures = {};
 
-        if (res.body != 'null') {
-          final decoded = jsonDecode(res.body);
-          if (decoded is Map) {
-            final deduped = _deduplicateBookingsMap(decoded);
-
-            for (final item in deduped) {
-              final mergedKeys = (item['_mergedFirebaseKeys'] as List?)
-                      ?.map((e) => e.toString())
-                      .toList() ??
-                  [];
-              if (mergedKeys.length > 1) {
-                for (final extraKey in mergedKeys.skip(1)) {
-                  unawaited(http.delete(
-                      Uri.parse('$kFirebaseDbUrl/bookings/$extraKey.json')));
-                }
-                item['_mergedFirebaseKeys'] = [mergedKeys.first];
-              }
-
-              final fKey = (item['firebaseKey'] ?? '').toString();
-              final sig = _bookingDedupeKey(item, fKey);
-              allSignatures.add(sig);
-              allSignatures.add('fb:$fKey');
-
-              final alreadyKnown = _knownSignatures.contains(sig) ||
-                  _knownSignatures.contains('fb:$fKey');
-
-              if (_firstLoadDone && !alreadyKnown) {
-                brandNew.add(item);
-              }
-
-              _knownSignatures.add(sig);
-              _knownSignatures.add('fb:$fKey');
-              loaded.add(item);
-            }
+      for (final item in deduped) {
+        final mergedKeys = (item['_mergedFirebaseKeys'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [];
+        if (mergedKeys.length > 1) {
+          for (final extraKey in mergedKeys.skip(1)) {
+            unawaited(http.delete(
+                Uri.parse('$kFirebaseDbUrl/bookings/$extraKey.json')));
           }
+          item['_mergedFirebaseKeys'] = [mergedKeys.first];
         }
 
-        await _publishOccupiedSlotsFromBookings(loaded);
+        final fKey = (item['firebaseKey'] ?? '').toString();
+        final sig = _bookingDedupeKey(item, fKey);
+        allSignatures.add(sig);
+        allSignatures.add('fb:$fKey');
 
-        for (final item in loaded) {
-          final cName = _extractBookingClientName(item);
-          final cPhone = _extractBookingClientPhone(item);
-          if (cName.isNotEmpty || cPhone.isNotEmpty) {
-            final alreadySaved = _clients.any((c) {
-              final p1 = _normalizePhone((c['phone'] ?? '').toString());
-              final p2 = _normalizePhone(cPhone);
-              final n1 = _normalizeNameShared((c['name'] ?? '').toString());
-              final n2 = _normalizeNameShared(cName);
-              return (p2.isNotEmpty && p1 == p2) ||
-                  (n2.isNotEmpty && n1 == n2);
-            });
-            if (!alreadySaved) {
-              unawaited(_upsertClientFromBooking(
-                name: cName,
-                phone: cPhone,
-                bookingDate: _extractBookingDateRaw(item),
-                bookingTime: _extractBookingTimeRaw(item),
-                incrementCount: false,
-              ));
-            }
-          }
+        final alreadyKnown = _knownSignatures.contains(sig) ||
+            _knownSignatures.contains('fb:$fKey');
+
+        if (_firstLoadDone && !alreadyKnown) {
+          brandNew.add(item);
         }
 
-        await prefs.setStringList(
-          kPrefKnownBookingKeys,
-          allSignatures.toList(),
-        );
-        _firstLoadDone = true;
-
-        int notifId = 100;
-        for (final novo in brandNew) {
-          final client = _extractBookingClientName(novo);
-          final phone = _extractBookingClientPhone(novo);
-          final dateLbl = _extractBookingDateRaw(novo);
-          final timeLbl = _extractBookingTimeRaw(novo);
-          final barber = _extractBookingBarberRaw(novo);
-
-          await _upsertClientFromBooking(
-            name: client,
-            phone: phone,
-            bookingDate: dateLbl,
-            bookingTime: timeLbl,
-            incrementCount: true,
-          );
-
-          await _showBookingNotification(
-            'Nova marcação • $client',
-            '$dateLbl às $timeLbl ($barber)',
-            notifId++,
-          );
-        }
-
-        if (!mounted) return;
-        setState(() {
-          _bookings = loaded;
-          if (brandNew.isNotEmpty) {
-            _newAlerts = [...brandNew, ..._newAlerts];
-          }
-          _statusMsg = 'Online • ${loaded.length} marcação(ões)';
-        });
-      } else {
-        if (!mounted) return;
-        setState(() => _statusMsg = 'Erro HTTP ${res.statusCode}');
+        _knownSignatures.add(sig);
+        _knownSignatures.add('fb:$fKey');
+        loaded.add(item);
       }
+
+      await _publishOccupiedSlotsFromBookings(loaded);
+
+      for (final item in loaded) {
+        final cName = _extractBookingClientName(item);
+        final cPhone = _extractBookingClientPhone(item);
+        if (cName.isNotEmpty || cPhone.isNotEmpty) {
+          final alreadySaved = _clients.any((c) {
+            final p1 = _normalizePhone((c['phone'] ?? '').toString());
+            final p2 = _normalizePhone(cPhone);
+            final n1 = _normalizeNameShared((c['name'] ?? '').toString());
+            final n2 = _normalizeNameShared(cName);
+            return (p2.isNotEmpty && p1 == p2) || (n2.isNotEmpty && n1 == n2);
+          });
+          if (!alreadySaved) {
+            unawaited(_upsertClientFromBooking(
+              name: cName,
+              phone: cPhone,
+              bookingDate: _extractBookingDateRaw(item),
+              bookingTime: _extractBookingTimeRaw(item),
+              incrementCount: false,
+            ));
+          }
+        }
+      }
+
+      await prefs.setStringList(
+        kPrefKnownBookingKeys,
+        allSignatures.toList(),
+      );
+      _firstLoadDone = true;
+
+      int notifId = 100;
+      for (final novo in brandNew) {
+        final client = _extractBookingClientName(novo);
+        final phone = _extractBookingClientPhone(novo);
+        final dateLbl = _extractBookingDateRaw(novo);
+        final timeLbl = _extractBookingTimeRaw(novo);
+        final barber = _extractBookingBarberRaw(novo);
+
+        await _upsertClientFromBooking(
+          name: client,
+          phone: phone,
+          bookingDate: dateLbl,
+          bookingTime: timeLbl,
+          incrementCount: true,
+        );
+
+        await _showBookingNotification(
+          'Nova marcação no Site • $client',
+          '$dateLbl às $timeLbl ($barber)',
+          notifId++,
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _bookings = loaded;
+        if (brandNew.isNotEmpty) {
+          _newAlerts = [...brandNew, ..._newAlerts];
+        }
+        _statusMsg = 'Online • ${loaded.length} marcação(ões)';
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _statusMsg = 'Falha de rede ao ler Firebase');
@@ -1990,8 +2166,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   int? _timeToMinutes(String raw) {
-    final match = RegExp(r'(\d{1,2}:\d{2})').firstMatch(raw.trim());
-    final clean = match != null ? match.group(1)! : raw.trim();
+    final cleanInput = raw.trim().replaceAll(RegExp(r'[hH]'), ':');
+    final match = RegExp(r'(\d{1,2}:\d{2})').firstMatch(cleanInput);
+    final clean = match != null ? match.group(1)! : cleanInput;
     if (clean.isEmpty) return null;
     final parts = clean.split(':');
     if (parts.length < 2) return null;
@@ -2051,7 +2228,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       if (st == 'cancelado' || st == 'cancelada') continue;
 
       final bDt = _parseBookingDate(b);
-      if (bDt != null && !_isSameDay(bDt, day)) continue;
+      if (bDt == null || !_isSameDay(bDt, day)) continue;
 
       if (!_sameBarberName(_extractBookingBarberRaw(b), barberFilter)) {
         continue;
@@ -2096,7 +2273,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
 
       final bDt = _parseBookingDate(b);
-      if (bDt != null && !_isSameDay(bDt, day)) continue;
+      if (bDt == null || !_isSameDay(bDt, day)) continue;
 
       if (!_sameBarberName(_extractBookingBarberRaw(b), barberName)) {
         continue;
@@ -2539,7 +2716,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             ],
           ),
           IconButton(
-            tooltip: 'Sincronizar App e Site agora',
+            tooltip: 'Puxar agendamentos do Site agora',
             icon: _loading
                 ? const SizedBox(
                     width: 18,
@@ -3052,12 +3229,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final Set<String> renderedBookingKeys = {};
     final List<Widget> rows = [];
 
-    // Garante que qualquer cliente marcado no dia e barbeiro apareça sempre na grade
     final dayBookings = _bookings.where((b) {
       final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
       if (st == 'cancelado' || st == 'cancelada') return false;
       final bDt = _parseBookingDate(b);
-      if (bDt != null && !_isSameDay(bDt, day)) return false;
+      if (bDt == null || !_isSameDay(bDt, day)) return false;
       return _sameBarberName(_extractBookingBarberRaw(b), barberName);
     }).toList();
 
@@ -3178,7 +3354,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
     }
 
-    // Caso algum agendamento tenha horário fora dos slots gerados, renderiza-o no topo
     final List<Widget> extraBookedCards = [];
     for (final bk in dayBookings) {
       final String uniqueId =
@@ -3255,7 +3430,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
       if (st == 'cancelado' || st == 'cancelada') continue;
       final DateTime? bDt = _parseBookingDate(b);
-      if (bDt != null && !_isSameDay(bDt, _gridSelectedDate)) continue;
+      if (bDt == null || !_isSameDay(bDt, _gridSelectedDate)) continue;
       if (!_sameBarberName(_extractBookingBarberRaw(b), activeBarberName)) {
         continue;
       }
@@ -3285,8 +3460,17 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   ...List<Widget>.generate(7, (int idx) {
                     final DateTime d = DateTime.now().add(Duration(days: idx));
                     final bool selected = _isSameDay(d, _gridSelectedDate);
+                    final countDay = _bookings.where((bk) {
+                      final st = (bk['status'] ?? 'confirmado')
+                          .toString()
+                          .trim()
+                          .toLowerCase();
+                      if (st == 'cancelado' || st == 'cancelada') return false;
+                      final dt = _parseBookingDate(bk);
+                      return dt != null && _isSameDay(dt, d);
+                    }).length;
                     final String lbl =
-                        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} • ${_weekdayFullName(d).substring(0, 3)}';
+                        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} • ${_weekdayFullName(d).substring(0, 3)}${countDay > 0 ? ' ($countDay)' : ''}';
                     return Padding(
                       padding: const EdgeInsets.only(right: 6),
                       child: ChoiceChip(
@@ -3342,7 +3526,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           .toLowerCase();
                       if (st == 'cancelado' || st == 'cancelada') return false;
                       final dt = _parseBookingDate(bk);
-                      return (dt == null || _isSameDay(dt, _gridSelectedDate)) &&
+                      return dt != null &&
+                          _isSameDay(dt, _gridSelectedDate) &&
                           _sameBarberName(
                               _extractBookingBarberRaw(bk), bName);
                     }).length;
@@ -4085,7 +4270,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           _gridSelectedDate = parsedDt;
                         }
                         final bIdx = _barbers.indexWhere((br) =>
-                            _sameBarberName(br['name']?.toString(), selectedBarber));
+                            _sameBarberName(
+                                br['name']?.toString(), selectedBarber));
                         if (bIdx >= 0) {
                           _selectedBarberTabIdx = bIdx;
                         }
@@ -4658,7 +4844,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildClientsAndPlansTab() {
+
+  Widget _buildClientsAndPlansTab() {
     final filteredClients = _clients.where((c) {
       if (_clientSearchQuery.trim().isEmpty) return true;
       final q = _normalizeNameShared(_clientSearchQuery);
@@ -4866,8 +5053,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-
-  Future<void> _sendManualPlanExpiryWhatsApp(JsonMap m) async {
+     Future<void> _sendManualPlanExpiryWhatsApp(JsonMap m) async {
     final cName = (m['clientName'] ?? 'Cliente').toString();
     final planName = (m['planName'] ?? 'Plano Mensal').toString();
     final expStr = (m['expiresAt'] ?? '').toString();
@@ -5061,7 +5247,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       },
     );
   }
-      Widget _buildBarbersTab() {
+
+  Widget _buildBarbersTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -5301,7 +5488,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-      Widget _buildSettingsTab() {
+
+  Widget _buildSettingsTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
@@ -5329,6 +5517,51 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 const Text(
                   'Tudo o que você alterar no app (agendamentos, exclusões que liberam horários no site, preços, expediente, barbeiros e comissões) reflete no site imediatamente.',
                   style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4AF37),
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed: () => _publishAllConfigToSite(showFeedback: true),
+                  icon: const Icon(Icons.cloud_upload),
+                  label: const Text(
+                    'SINCRONIZAR APP E SITE AGORA',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Card(
+          color: const Color(0xFF141417),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0x44D4AF37)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'SEGURANÇA DO PAINEL ADMIN',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF3D97E),
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _newPassController,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Nova palavra-passe admin',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton.icon(
