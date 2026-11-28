@@ -21,7 +21,7 @@ const String kPrefKnownBookingKeys = 'mrjone_known_booking_keys';
 const String kPrefSentExpiryReminders = 'mrjone_sent_expiry_reminders_v1';
 const String kPrefExpediente = 'mrjone_expediente_v1';
 const String kPrefPauses = 'mrjone_pauses_v1';
-const String kPrefSlotStep = 'mrjone_slot_step_v1';
+const String kPrefGridServiceDuration = 'mrjone_grid_service_duration_v2';
 const String kPrefBarbersSeeded = 'mrjone_barbers_seeded_v1';
 final Map<String, JsonMap> kDefaultExpediente = {
   '1': {
@@ -521,7 +521,7 @@ String _bookingDedupeKey(Map b, String firebaseKey) {
       time.isNotEmpty &&
       (client.isNotEmpty || phone.isNotEmpty)) {
     final identityPart = phone.isNotEmpty ? phone : client;
-    return 'slot:$date|$time|$barber|$identityPart';
+    return 'slot:$date\vert{}$time|$barber\vert{}$identityPart';
   }
 
   final explicitId = (b['bookingId'] ?? b['clientBookingId'] ?? b['uid'] ?? '')
@@ -625,7 +625,6 @@ Future<List<JsonMap>> _fetchAllBookingsFromRemote() async {
 
   final deduped = _deduplicateBookingsList(rawCollected);
 
-  // Garante que qualquer marcação vinda apenas de site_bookings ou agendamentos seja espelhada em /bookings
   for (final item in deduped) {
     if (item['_sourceNode'] != 'bookings') {
       final normDate = _normalizeDateShared(_extractBookingDateRaw(item));
@@ -906,11 +905,11 @@ Future<void> _publishOccupiedSlotsFromBookings(List<JsonMap> bookings) async {
       final startTime = _normalizeTimeShared(_extractBookingTimeRaw(b));
       if (dateKey.isEmpty || startTime.isEmpty) continue;
 
-      int dur = int.tryParse('${b['duration'] ?? 30}') ?? 30;
+      int dur = int.tryParse('${b['duration'] ?? 40}') ?? 40;
       if (b['items'] is List && (b['items'] as List).isNotEmpty) {
         int sumDur = 0;
         for (final it in (b['items'] as List).whereType()) {
-          sumDur += int.tryParse('${it['duration'] ?? 30}') ?? 30;
+          sumDur += int.tryParse('${it['duration'] ?? 40}') ?? 40;
         }
         if (sumDur > 0) dur = sumDur;
       }
@@ -972,6 +971,7 @@ Future<void> _publishOccupiedSlotsFromBookings(List<JsonMap> bookings) async {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'byDate': byDate,
+          'slotMode': 'service_duration',
           'updatedAt': DateTime.now().toIso8601String(),
         }),
       ),
@@ -1144,7 +1144,7 @@ Future<void> _initBackgroundService() async {
       notificationChannelId: 'mrjone_bg_monitor',
       initialNotificationTitle: 'Barbearia Mr Jone • Gestão Ativa',
       initialNotificationContent:
-          'Bloqueando horários marcados e sincronizando clientes',
+          'Sincronizando horários por duração dos serviços',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -1206,7 +1206,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
   String _statusMsg = 'A aguardar ligação ao Firebase';
   String _adminPass = kDefaultAdminPass;
-  int _slotStepMinutes = 15;
+
+  // Duração padrão de serviço usada para calcular os encaixes livres na grade (ex: 40 min)
+  int _gridServiceDurationMinutes = 40;
+  String _gridSelectedServiceId = 'def_srv_2';
 
   final TextEditingController _passController = TextEditingController();
   final TextEditingController _newPassController = TextEditingController();
@@ -1315,7 +1318,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final prefs = await SharedPreferences.getInstance();
     final savedPass = prefs.getString(kPrefAdminPass);
     final wasLoggedIn = prefs.getBool(kPrefLoggedIn) ?? false;
-    final savedStep = prefs.getInt(kPrefSlotStep) ?? 15;
+    final savedDur = prefs.getInt(kPrefGridServiceDuration) ?? 40;
     final savedExpRaw = prefs.getString(kPrefExpediente);
     final savedPausesRaw = prefs.getString(kPrefPauses);
 
@@ -1355,7 +1358,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         _adminPass = savedPass.trim();
       }
       _newPassController.text = _adminPass;
-      _slotStepMinutes = savedStep;
+      _gridServiceDurationMinutes = savedDur > 0 ? savedDur : 40;
       _expediente = loadedExp;
       _pauses = loadedPauses;
       _unlocked = wasLoggedIn;
@@ -1397,9 +1400,14 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           body: jsonEncode(_expediente),
         ),
         http.put(
+          Uri.parse('$kFirebaseDbUrl/slotMode.json'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode('service_duration'),
+        ),
+        http.put(
           Uri.parse('$kFirebaseDbUrl/slotStepMinutes.json'),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(_slotStepMinutes),
+          body: jsonEncode(_gridServiceDurationMinutes),
         ),
         http.put(
           Uri.parse('$kFirebaseDbUrl/pauses.json'),
@@ -1427,7 +1435,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           body: jsonEncode({
             'expediente': _expediente,
             'pauses': _pauses,
-            'slotStepMinutes': _slotStepMinutes,
+            'slotMode': 'service_duration',
+            'useServiceDurationSlots': true,
+            'defaultServiceDuration': _gridServiceDurationMinutes,
             'services': activeServices,
             'plans': activePlans,
             'barbers': activeBarbers,
@@ -1446,12 +1456,12 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         final now = DateTime.now();
         setState(() {
           _statusMsg =
-              'Sincronizado App ↔ Site • ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+              'Sincronizado (Por Serviço) • ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
         });
         if (showFeedback) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Tudo salvo e refletido no Site!'),
+              content: Text('Salvo! Grade sincronizada pela duração dos serviços.'),
             ),
           );
         }
@@ -1468,11 +1478,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       _publishingConfig = false;
     }
   }
-      Future<void> _saveExpedienteAndSync() async {
+     Future<void> _saveExpedienteAndSync() async {
     _syncExpedienteFromControllers();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kPrefExpediente, jsonEncode(_expediente));
-    await prefs.setInt(kPrefSlotStep, _slotStepMinutes);
+    await prefs.setInt(kPrefGridServiceDuration, _gridServiceDurationMinutes);
     await _publishAllConfigToSite(showFeedback: true);
   }
 
@@ -1522,17 +1532,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           if (mounted) setState(() => _pauses = listP);
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(kPrefPauses, jsonEncode(listP));
-        }
-      }
-
-      final stepRes =
-          await http.get(Uri.parse('$kFirebaseDbUrl/slotStepMinutes.json'));
-      if (stepRes.statusCode == 200 && stepRes.body != 'null') {
-        final parsedStep = int.tryParse(stepRes.body.replaceAll('"', ''));
-        if (parsedStep != null && parsedStep > 0 && mounted) {
-          setState(() => _slotStepMinutes = parsedStep);
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setInt(kPrefSlotStep, parsedStep);
         }
       }
     } catch (_) {}
@@ -2200,7 +2199,20 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       }
       if (total > 0) return total;
     }
-    return int.tryParse('${b['duration'] ?? 30}') ?? 30;
+    final directDur = int.tryParse('${b['duration'] ?? 0}') ?? 0;
+    if (directDur > 0) return directDur;
+
+    // Fallback pela tabela de serviços cadastrados caso o site tenha mandado só o nome
+    final srvName = _normalizeNameShared(
+        (b['serviceName'] ?? b['service'] ?? '').toString());
+    if (srvName.isNotEmpty) {
+      for (final s in [..._services, ..._plans]) {
+        if (_normalizeNameShared((s['name'] ?? '').toString()) == srvName) {
+          return int.tryParse('${s['duration'] ?? 40}') ?? 40;
+        }
+      }
+    }
+    return 40;
   }
 
   bool _sameBarberName(String? a, String? b) {
@@ -2214,46 +2226,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     if (a == null) return false;
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
-      List<JsonMap> _findBookingsAtSlot(
-    DateTime day,
-    int slotMin, {
-    required String barberFilter,
-  }) {
-    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
-    final int slotEnd = slotMin + step;
-    final List<JsonMap> hits = [];
-
-    for (final b in _bookings) {
-      final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado' || st == 'cancelada') continue;
-
-      final bDt = _parseBookingDate(b);
-      if (bDt == null || !_isSameDay(bDt, day)) continue;
-
-      if (!_sameBarberName(_extractBookingBarberRaw(b), barberFilter)) {
-        continue;
-      }
-
-      final startMin = _timeToMinutes(_extractBookingTimeRaw(b));
-      if (startMin == null) continue;
-      final dur = _bookingDurationMinutes(b);
-      final endMin = startMin + dur;
-
-      if (slotMin < endMin && slotEnd > startMin) {
-        hits.add({
-          'booking': b,
-          'startMin': startMin,
-          'endMin': endMin,
-          'startStr': _minutesToTime(startMin),
-          'endStr': _minutesToTime(endMin),
-          'isStart': slotMin >= startMin && slotMin < startMin + step,
-        });
-      }
-    }
-    return hits;
-  }
-
-  bool _hasBookingConflict({
+      bool _hasBookingConflict({
     required DateTime day,
     required int startMin,
     required int durationMin,
@@ -2290,81 +2263,150 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return false;
   }
 
-  bool _isWindowFreeForDuration(
-    DateTime day,
-    int startMin,
-    int durationMin, {
+  // Gera a agenda dinâmica do dia combinando:
+  // 1) Agendamentos reais (com sua duração exata)
+  // 2) Pausas configuradas
+  // 3) Horários livres calculados pela duração do serviço selecionado (sem fatiar de 15 em 15 min)
+  List<JsonMap> _buildServiceBasedTimelineItems({
+    required DateTime day,
     required String barberFilter,
+    required int serviceDurationMin,
   }) {
-    final int endMin = startMin + durationMin;
-
+    final int dur = serviceDurationMin > 0 ? serviceDurationMin : 40;
     final String expKey = _expedienteKeyForDate(day);
     final JsonMap dayExp = _expediente[expKey] ?? {};
-    if (dayExp['ativo'] != true) return false;
+    final bool isOpen = dayExp['ativo'] == true;
 
-    final List<IntMap> turnos = [];
-    final int? t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
-    final int? t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
-    if (t1s != null && t1e != null && t1e > t1s) {
-      turnos.add({'start': t1s, 'end': t1e});
+    final List<JsonMap> timeline = [];
+    final List<JsonMap> dayBookings = [];
+
+    for (final b in _bookings) {
+      final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
+      if (st == 'cancelado' || st == 'cancelada') continue;
+      final bDt = _parseBookingDate(b);
+      if (bDt == null || !_isSameDay(bDt, day)) continue;
+      if (!_sameBarberName(_extractBookingBarberRaw(b), barberFilter)) continue;
+
+      final startM = _timeToMinutes(_extractBookingTimeRaw(b));
+      if (startM == null) continue;
+      final bDur = _bookingDurationMinutes(b);
+      final endM = startM + bDur;
+
+      dayBookings.add({
+        'booking': b,
+        'startMin': startM,
+        'endMin': endM,
+      });
+
+      timeline.add({
+        'type': 'booking',
+        'startMin': startM,
+        'endMin': endM,
+        'booking': b,
+      });
     }
-    if (dayExp['t2Ativo'] == true) {
-      final int? t2s =
-          _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
-      final int? t2e = _timeToMinutes((dayExp['t2Fim'] ?? '19:00').toString());
-      if (t2s != null && t2e != null && t2e > t2s) {
-        turnos.add({'start': t2s, 'end': t2e});
-      }
-    }
 
-    final bool insideTurn = turnos.any(
-      (t) => startMin >= (t['start'] ?? 0) && endMin <= (t['end'] ?? 0),
-    );
-    if (!insideTurn) return false;
-
+    final List<JsonMap> dayPauses = [];
     for (final p in _pauses) {
       final pDt = _parseDateString((p['date'] ?? '').toString());
       if (pDt != null && !_isSameDay(pDt, day)) continue;
       final ps = _timeToMinutes((p['start'] ?? '').toString());
       final pe = _timeToMinutes((p['end'] ?? '').toString());
       if (ps != null && pe != null && pe > ps) {
-        if (startMin < pe && endMin > ps) return false;
+        final pauseObj = {
+          'type': 'pause',
+          'startMin': ps,
+          'endMin': pe,
+          'reason': (p['reason'] ?? 'Pausa / Bloqueio').toString(),
+        };
+        dayPauses.add(pauseObj);
+        timeline.add(pauseObj);
       }
     }
 
-    if (_hasBookingConflict(
-      day: day,
-      startMin: startMin,
-      durationMin: durationMin,
-      barberName: barberFilter,
-    )) {
-      return false;
-    }
+    if (isOpen) {
+      final List<IntMap> turnos = [];
+      final int? t1s =
+          _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
+      final int? t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
+      if (t1s != null && t1e != null && t1e > t1s) {
+        turnos.add({'start': t1s, 'end': t1e});
+      }
+      if (dayExp['t2Ativo'] == true) {
+        final int? t2s =
+            _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
+        final int? t2e =
+            _timeToMinutes((dayExp['t2Fim'] ?? '19:00').toString());
+        if (t2s != null && t2e != null && t2e > t2s) {
+          turnos.add({'start': t2s, 'end': t2e});
+        }
+      }
 
-    return true;
-  }
+      for (final turno in turnos) {
+        int cursor = turno['start'] ?? 0;
+        final int turnEnd = turno['end'] ?? 0;
 
-  JsonMap? _findPauseAtSlot(DateTime day, int slotMin) {
-    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
-    final int slotEnd = slotMin + step;
+        while (cursor + dur <= turnEnd) {
+          final int candidateEnd = cursor + dur;
 
-    for (final p in _pauses) {
-      final pDt = _parseDateString((p['date'] ?? '').toString());
-      if (pDt != null && !_isSameDay(pDt, day)) continue;
+          // Verifica se bate em algum agendamento existente
+          JsonMap? hitBooking;
+          for (final bk in dayBookings) {
+            final int bs = bk['startMin'] as int;
+            final int be = bk['endMin'] as int;
+            if (cursor < be && candidateEnd > bs) {
+              hitBooking = bk;
+              break;
+            }
+          }
 
-      final ps = _timeToMinutes((p['start'] ?? '').toString());
-      final pe = _timeToMinutes((p['end'] ?? '').toString());
-      if (ps != null && pe != null && pe > ps) {
-        if (slotMin < pe && slotEnd > ps) {
-          return {
-            'reason': (p['reason'] ?? 'Pausa / Bloqueio').toString(),
-            'startStr': _minutesToTime(ps),
-            'endStr': _minutesToTime(pe),
-          };
+          if (hitBooking != null) {
+            // Pula direto para o fim do atendimento ocupado (ex: 09:00 + 40m = próximo livre 09:40)
+            cursor = hitBooking['endMin'] as int;
+            continue;
+          }
+
+          // Verifica se bate em alguma pausa
+          JsonMap? hitPause;
+          for (final pz in dayPauses) {
+            final int ps = pz['startMin'] as int;
+            final int pe = pz['endMin'] as int;
+            if (cursor < pe && candidateEnd > ps) {
+              hitPause = pz;
+              break;
+            }
+          }
+
+          if (hitPause != null) {
+            cursor = hitPause['endMin'] as int;
+            continue;
+          }
+
+          // Horário livre válido para a duração do serviço!
+          timeline.add({
+            'type': 'free',
+            'startMin': cursor,
+            'endMin': candidateEnd,
+            'duration': dur,
+          });
+
+          // Avança exatamente a duração do serviço (ex.: 40 min -> 09:00..09:40, 09:40..10:20, etc.)
+          cursor += dur;
         }
       }
     }
-    return null;
+
+    timeline.sort((a, b) {
+      final sa = a['startMin'] as int;
+      final sb = b['startMin'] as int;
+      if (sa != sb) return sa.compareTo(sb);
+      // Prioriza exibir agendamento antes de qualquer outro item no mesmo minuto
+      if (a['type'] == 'booking' && b['type'] != 'booking') return -1;
+      if (a['type'] != 'booking' && b['type'] == 'booking') return 1;
+      return 0;
+    });
+
+    return timeline;
   }
 
   bool _isCompletedStatus(Map b) {
@@ -2793,7 +2835,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             ),
           ),
           const Text(
-            'APP ↔ SITE',
+            'POR SERVIÇO',
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.bold,
@@ -3133,7 +3175,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$cName • $startStr até $endStr',
+                      '$cName • $startStr até $endStr (${durM}m)',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -3221,45 +3263,44 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   List<Widget> _buildGridRowsForSingleBarber(
     DateTime day,
     String barberName,
-    List<int> slotMinutes,
     bool isOpen,
   ) {
-    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
     final String dateBR = _formatDateBR(day);
-    final Set<String> renderedBookingKeys = {};
+    final List<JsonMap> timeline = _buildServiceBasedTimelineItems(
+      day: day,
+      barberFilter: barberName,
+      serviceDurationMin: _gridServiceDurationMinutes,
+    );
+
+    if (timeline.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            isOpen
+                ? 'Nenhum horário disponível para serviço de $_gridServiceDurationMinutes min neste dia.'
+                : 'Expediente fechado neste dia. Ative na aba Horários.',
+            style: const TextStyle(fontSize: 12, color: Colors.white70),
+          ),
+        ),
+      ];
+    }
+
     final List<Widget> rows = [];
+    for (final item in timeline) {
+      final String type = (item['type'] ?? '').toString();
+      final int startM = item['startMin'] as int;
+      final int endM = item['endMin'] as int;
+      final String slotStartStr = _minutesToTime(startM);
+      final String slotEndStr = _minutesToTime(endM);
 
-    final dayBookings = _bookings.where((b) {
-      final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado' || st == 'cancelada') return false;
-      final bDt = _parseBookingDate(b);
-      if (bDt == null || !_isSameDay(bDt, day)) return false;
-      return _sameBarberName(_extractBookingBarberRaw(b), barberName);
-    }).toList();
-
-    for (final int m in slotMinutes) {
-      final String slotStartStr = _minutesToTime(m);
-      final String slotEndStr = _minutesToTime(m + step);
-      final JsonMap? pauseHit = _findPauseAtSlot(day, m);
-      final List<JsonMap> bookingHits = _findBookingsAtSlot(
-        day,
-        m,
-        barberFilter: barberName,
-      );
-
-      if (bookingHits.isNotEmpty) {
-        for (final JsonMap hit in bookingHits) {
-          final JsonMap bk = hit['booking'] as JsonMap;
-          final String uniqueId =
-              _bookingDedupeKey(bk, (bk['firebaseKey'] ?? '').toString());
-          if (renderedBookingKeys.contains(uniqueId)) continue;
-          renderedBookingKeys.add(uniqueId);
-          rows.add(_buildBookedClientCard(bk, barberName));
-        }
+      if (type == 'booking') {
+        rows.add(_buildBookedClientCard(
+            item['booking'] as JsonMap, barberName));
         continue;
       }
 
-      if (pauseHit != null) {
+      if (type == 'pause') {
         rows.add(
           Container(
             margin: const EdgeInsets.only(bottom: 6),
@@ -3282,7 +3323,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'PAUSA • ${pauseHit['reason']}',
+                    'PAUSA • ${item['reason']}',
                     style:
                         const TextStyle(fontSize: 12, color: Colors.white70),
                   ),
@@ -3294,13 +3335,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
         continue;
       }
 
-      final bool canFit40Min = _isWindowFreeForDuration(
-        day,
-        m,
-        40,
-        barberFilter: barberName,
-      );
-
+      final int slotDur = endM - startM;
       rows.add(
         Container(
           margin: const EdgeInsets.only(bottom: 6),
@@ -3323,12 +3358,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  canFit40Min
-                      ? 'HORÁRIO VAGO'
-                      : 'VAGO CURTO (INDISPONÍVEL P/ 40M+)',
-                  style: TextStyle(
+                  'LIVRE (${slotDur} min)',
+                  style: const TextStyle(
                     fontSize: 11,
-                    color: canFit40Min ? Colors.white54 : Colors.amberAccent,
+                    color: Colors.greenAccent,
                   ),
                 ),
               ),
@@ -3341,6 +3374,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   presetDateStr: dateBR,
                   presetTimeStr: slotStartStr,
                   presetBarberName: barberName,
+                  presetServiceId: _gridSelectedServiceId,
                 ),
                 icon: const Icon(Icons.add, size: 15, color: Color(0xFFD4AF37)),
                 label: const Text(
@@ -3354,29 +3388,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       );
     }
 
-    final List<Widget> extraBookedCards = [];
-    for (final bk in dayBookings) {
-      final String uniqueId =
-          _bookingDedupeKey(bk, (bk['firebaseKey'] ?? '').toString());
-      if (!renderedBookingKeys.contains(uniqueId)) {
-        renderedBookingKeys.add(uniqueId);
-        extraBookedCards.add(_buildBookedClientCard(bk, barberName));
-      }
-    }
-
-    if (!isOpen && rows.isEmpty && extraBookedCards.isEmpty) {
-      rows.add(
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 12),
-          child: Text(
-            'Expediente fechado neste dia. Ative na aba Horários.',
-            style: TextStyle(fontSize: 12, color: Colors.white70),
-          ),
-        ),
-      );
-    }
-
-    return [...extraBookedCards, ...rows];
+    return rows;
   }
       Widget _buildScheduleGridSection() {
     final String expKey = _expedienteKeyForDate(_gridSelectedDate);
@@ -3397,49 +3409,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final int safeBarberIdx =
         _selectedBarberTabIdx.clamp(0, barberNames.length - 1);
     final String activeBarberName = barberNames[safeBarberIdx];
-
-    final List<IntMap> turnos = [];
-    final int? t1s = _timeToMinutes((dayExp['t1Inicio'] ?? '09:00').toString());
-    final int? t1e = _timeToMinutes((dayExp['t1Fim'] ?? '12:00').toString());
-    if (t1s != null && t1e != null && t1e > t1s) {
-      turnos.add({'start': t1s, 'end': t1e});
-    }
-    if (dayExp['t2Ativo'] == true) {
-      final int? t2s =
-          _timeToMinutes((dayExp['t2Inicio'] ?? '14:00').toString());
-      final int? t2e = _timeToMinutes((dayExp['t2Fim'] ?? '19:00').toString());
-      if (t2s != null && t2e != null && t2e > t2s) {
-        turnos.add({'start': t2s, 'end': t2e});
-      }
-    }
-
-    final int step = _slotStepMinutes <= 0 ? 15 : _slotStepMinutes;
-    final List<int> slotMinutes = [];
-    for (final IntMap t in turnos) {
-      final int startM = t['start'] ?? 0;
-      final int endM = t['end'] ?? 0;
-      for (int m = startM; m < endM; m += step) {
-        if (!slotMinutes.contains(m)) {
-          slotMinutes.add(m);
-        }
-      }
-    }
-
-    for (final JsonMap b in _bookings) {
-      final String st =
-          (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-      if (st == 'cancelado' || st == 'cancelada') continue;
-      final DateTime? bDt = _parseBookingDate(b);
-      if (bDt == null || !_isSameDay(bDt, _gridSelectedDate)) continue;
-      if (!_sameBarberName(_extractBookingBarberRaw(b), activeBarberName)) {
-        continue;
-      }
-      final int? sm = _timeToMinutes(_extractBookingTimeRaw(b));
-      if (sm != null && !slotMinutes.contains(sm)) {
-        slotMinutes.add(sm);
-      }
-    }
-    slotMinutes.sort();
 
     return Card(
       color: const Color(0xFF141417),
@@ -3503,6 +3472,44 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     },
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Seletor rápido de duração por serviço (sem grade fixa de 15m)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _services
+                    .where((s) => s['active'] != false)
+                    .map((srv) {
+                  final srvId = (srv['id'] ?? '').toString();
+                  final srvName = (srv['name'] ?? '').toString();
+                  final srvDur = int.tryParse('${srv['duration'] ?? 40}') ?? 40;
+                  final isSel = _gridSelectedServiceId == srvId;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(
+                        '$srvName (${srvDur}m)',
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                      selected: isSel,
+                      selectedColor: const Color(0xFFD4AF37),
+                      labelStyle: TextStyle(
+                        color: isSel ? Colors.black : Colors.white70,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      onSelected: (_) async {
+                        setState(() {
+                          _gridSelectedServiceId = srvId;
+                          _gridServiceDurationMinutes = srvDur;
+                        });
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setInt(kPrefGridServiceDuration, srvDur);
+                      },
+                    ),
+                  );
+                }).toList(),
               ),
             ),
             const SizedBox(height: 10),
@@ -3595,6 +3602,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   onPressed: () => _openManualEntryDialog(
                     presetDateStr: dateBR,
                     presetBarberName: activeBarberName,
+                    presetServiceId: _gridSelectedServiceId,
                   ),
                   icon: const Icon(Icons.add_circle_outline,
                       size: 16, color: Color(0xFFD4AF37)),
@@ -3609,7 +3617,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             ..._buildGridRowsForSingleBarber(
               _gridSelectedDate,
               activeBarberName,
-              slotMinutes,
               isOpen,
             ),
           ],
@@ -3857,8 +3864,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     final parsedDt = _parseDateString(normDate);
                     final startM = _timeToMinutes(normTime) ?? 0;
                     final durM =
-                        int.tryParse('${selectedService['duration'] ?? 30}') ??
-                            30;
+                        int.tryParse('${selectedService['duration'] ?? 40}') ??
+                            40;
 
                     if (parsedDt != null &&
                         _hasBookingConflict(
@@ -3933,6 +3940,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     String? presetDateStr,
     String? presetTimeStr,
     String? presetBarberName,
+    String? presetServiceId,
   }) async {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
@@ -3945,7 +3953,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     bool markAsCompletedNow = false;
 
     final initialOptions = _allowedCatalogOptions();
-    JsonMap selectedService = initialOptions.first;
+    JsonMap selectedService = initialOptions.firstWhere(
+      (o) => (o['id'] ?? '').toString() == (presetServiceId ?? ''),
+      orElse: () => initialOptions.first,
+    );
 
     await showDialog(
       context: context,
@@ -3985,7 +3996,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             final int startM =
                 _timeToMinutes(_normalizeTimeShared(timeCtrl.text)) ?? 540;
             final int durM =
-                int.tryParse('${selectedService['duration'] ?? 30}') ?? 30;
+                int.tryParse('${selectedService['duration'] ?? 40}') ?? 40;
             final String previewEndStr = _minutesToTime(startM + durM);
 
             return AlertDialog(
@@ -4127,7 +4138,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       dropdownColor: const Color(0xFF1D1D22),
                       items: dynamicOptions.map((opt) {
                         final p = (opt['price'] as double).toStringAsFixed(2);
-                        final d = opt['duration'] ?? 30;
+                        final d = opt['duration'] ?? 40;
                         return DropdownMenuItem<String>(
                           value: opt['name'].toString(),
                           child: Text(
@@ -4320,11 +4331,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              'SERVIÇOS AVULSOS (REFLETE NO SITE)',
+              'SERVIÇOS AVULSOS (DURAÇÃO DEFINE HORÁRIOS)',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Color(0xFFF3D97E),
-                fontSize: 13,
+                fontSize: 12,
               ),
             ),
             ElevatedButton.icon(
@@ -4349,7 +4360,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Color(0xFFF3D97E),
-                fontSize: 13,
+                fontSize: 12,
               ),
             ),
             ElevatedButton.icon(
@@ -4371,7 +4382,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
 
   Widget _buildCatalogItemCard(JsonMap item, {required bool isPlan}) {
     final price = double.tryParse('${item['price'] ?? 0}') ?? 0.0;
-    final dur = item['duration'] ?? 30;
+    final dur = item['duration'] ?? 40;
     final active = item['active'] != false;
 
     return Card(
@@ -4535,7 +4546,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       'price': double.tryParse(
                               priceCtrl.text.replaceAll(',', '.')) ??
                           0.0,
-                      'duration': int.tryParse(durCtrl.text.trim()) ?? 30,
+                      'duration': int.tryParse(durCtrl.text.trim()) ?? 40,
                       'isPlan': isPlan,
                       'sessionsPerMonth': isPlan
                           ? (int.tryParse(sessCtrl.text.trim()) ?? 4)
@@ -4590,32 +4601,17 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'INTERVALO DA GRADE DE HORÁRIOS (APP & SITE)',
+                  'MODO DA GRADE DE HORÁRIOS: DURAÇÃO DOS SERVIÇOS',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Color(0xFFF3D97E),
                     fontSize: 12,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [15, 20, 30, 40, 60].map((mins) {
-                    final sel = _slotStepMinutes == mins;
-                    return ChoiceChip(
-                      label: Text('$mins min'),
-                      selected: sel,
-                      selectedColor: const Color(0xFFD4AF37),
-                      labelStyle: TextStyle(
-                        color: sel ? Colors.black : Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      onSelected: (_) async {
-                        setState(() => _slotStepMinutes = mins);
-                        await _saveExpedienteAndSync();
-                      },
-                    );
-                  }).toList(),
+                const SizedBox(height: 6),
+                const Text(
+                  'A grade fixa de 15 em 15 minutos foi desativada. Os horários livres são calculados automaticamente pela duração de cada serviço configurado na aba Preços.',
+                  style: TextStyle(fontSize: 11, color: Colors.white70),
                 ),
               ],
             ),
@@ -5053,7 +5049,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-     Future<void> _sendManualPlanExpiryWhatsApp(JsonMap m) async {
+      Future<void> _sendManualPlanExpiryWhatsApp(JsonMap m) async {
     final cName = (m['clientName'] ?? 'Cliente').toString();
     final planName = (m['planName'] ?? 'Plano Mensal').toString();
     final expStr = (m['expiresAt'] ?? '').toString();
@@ -5567,63 +5563,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFD4AF37),
-                    foregroundColor: Colors.black,
-                  ),
-                  onPressed: () => _publishAllConfigToSite(showFeedback: true),
-                  icon: const Icon(Icons.cloud_upload),
-                  label: const Text(
-                    'SINCRONIZAR APP E SITE AGORA',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Card(
-          color: const Color(0xFF141417),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: const BorderSide(color: Color(0x44D4AF37)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'SEGURANÇA DO PAINEL ADMIN',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFF3D97E),
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _newPassController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Nova palavra-passe admin',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD4AF37),
-                    foregroundColor: Colors.black,
-                  ),
-                  onPressed: () => _saveNewAdminPass(_newPassController.text),
-                  icon: const Icon(Icons.key),
-                  label: const Text(
-                    'SALVAR PALAVRA-PASSE',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.redAccent,
                     side: const BorderSide(color: Colors.redAccent),
                   ),
