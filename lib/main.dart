@@ -2621,224 +2621,163 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     return timeline;
   }
 // ================= FIM BLOCO 19/25 =================
-    // ================= BLOCO 20/25 =================
-  bool _isCompletedStatus(Map b) {
-    final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-    return st == 'concluído' || st == 'concluido';
+// ================= BLOCO 20/25 =================
+  final TextEditingController _newPassController = TextEditingController();
+
+  double _getBarberCommissionPct(String barberName) {
+    final match = _barbers.firstWhere(
+      (br) => _sameBarberName(br['name']?.toString(), barberName),
+      orElse: () => const {},
+    );
+    if (match.isNotEmpty && match['commission'] != null) {
+      return double.tryParse(
+            match['commission'].toString().replaceAll(',', '.'),
+          ) ??
+          50.0;
+    }
+    return _sameBarberName(barberName, 'Jhonny') ? 100.0 : 50.0;
   }
 
-  DateTime? _parseBookingDate(Map b) {
-    final rawDate = _extractBookingDateRaw(b);
-    if (rawDate.isNotEmpty) {
-      final parsed = _parseDateString(rawDate);
-      if (parsed != null) return parsed;
-    }
+  Future<void> _saveBarber({
+    JsonMap? existing,
+    required String name,
+    required String role,
+    required double commission,
+  }) async {
+    final cleanName = name.trim();
+    if (cleanName.isEmpty) return;
 
-    final created = (b['createdAt'] ?? '').toString().trim();
-    if (created.isNotEmpty) {
-      final parsed = DateTime.tryParse(created);
-      if (parsed != null) {
-        return DateTime(parsed.year, parsed.month, parsed.day);
-      }
-    }
-    return null;
-  }
+    final id = (existing?['id'] ??
+            'brb_${_canonicalBarberKeyShared(cleanName)}_${DateTime.now().millisecondsSinceEpoch}')
+        .toString();
 
-  bool _matchesPeriod(Map b, String period) {
-    final dt = _parseBookingDate(b);
-    if (dt == null) return true;
-
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-
-    if (period == 'diario') {
-      return dt.year == today.year &&
-          dt.month == today.month &&
-          dt.day == today.day;
-    }
-
-    if (period == 'mensal') {
-      return dt.year == today.year && dt.month == today.month;
-    }
-
-    final weekStart = today.subtract(const Duration(days: 6));
-    final weekEnd = today.add(const Duration(days: 1));
-    return !dt.isBefore(weekStart) && dt.isBefore(weekEnd);
-  }
-
-  double _getBarberCommissionPct(String? barberName) {
-    final target = _canonicalBarberKeyShared(barberName ?? '');
-    if (target.isNotEmpty) {
-      for (final b in _barbers) {
-        final bName = _canonicalBarberKeyShared((b['name'] ?? '').toString());
-        if (bName == target) {
-          final val = double.tryParse('${b['commission'] ?? 50.0}') ?? 50.0;
-          return val.clamp(0.0, 100.0);
-        }
-      }
-    }
-    return 50.0;
-  }
-
-  double _calcReceitaItem(Map item) {
-    final double price = double.tryParse('${item['price'] ?? 0}') ?? 0;
-    final bool isPlan = item['isPlan'] == true;
-    final int sessions = int.tryParse('${item['sessionsPerMonth'] ?? 4}') ?? 4;
-    return isPlan ? (price / (sessions <= 0 ? 4 : sessions)) : price;
-  }
-
-  double _calcBookingValue(Map b) {
-    double sum = 0;
-    final items = b['items'];
-    if (items is List) {
-      for (final it in items.whereType()) {
-        sum += _calcReceitaItem(it);
-      }
-    }
-    if (sum == 0) {
-      final fallbackPrice =
-          double.tryParse('${b['price'] ?? b['total'] ?? 0}') ?? 0;
-      if (fallbackPrice > 0) sum = fallbackPrice;
-    }
-    return sum;
-  }
-
-  double _calcBookingCommission(Map b) {
-    final pct = _getBarberCommissionPct(_extractBookingBarberRaw(b));
-    return _calcBookingValue(b) * (pct / 100.0);
-  }
-
-  bool _shouldCountBooking(Map b, {bool onlyCompleted = true}) {
-    final st = (b['status'] ?? 'confirmado').toString().trim().toLowerCase();
-    if (st == 'cancelado' ||
-        st == 'cancelada' ||
-        st == 'não concluído' ||
-        st == 'nao concluido') {
-      return false;
-    }
-    if (onlyCompleted) {
-      return st == 'concluído' || st == 'concluido';
-    }
-    return true;
-  }
-
-  JsonMap _periodFinancialSummary(
-    String period, {
-    bool onlyCompleted = true,
-  }) {
-    double faturamento = 0;
-    double comissao = 0;
-    int count = 0;
-    for (final b in _bookings) {
-      if (!_shouldCountBooking(b, onlyCompleted: onlyCompleted)) continue;
-      if (!_matchesPeriod(b, period)) continue;
-      final r = _calcBookingValue(b);
-      final c = _calcBookingCommission(b);
-      faturamento += r;
-      comissao += c;
-      count++;
-    }
-    return {
-      'faturamento': faturamento,
-      'comissao': comissao,
-      'count': count,
+    final payload = {
+      'id': id,
+      'name': cleanName,
+      'role': role.trim().isEmpty ? 'Barbeiro' : role.trim(),
+      'commission': commission,
+      'active': existing?['active'] != false,
+      'updatedAt': DateTime.now().toIso8601String(),
     };
-  }
 
-  List<String> _allKeysForBooking(Map b) {
-    final list = <String>[];
-    final mainKey = (b['firebaseKey'] ?? '').toString();
-    if (mainKey.isNotEmpty) list.add(mainKey);
-    if (b['_mergedFirebaseKeys'] is List) {
-      for (final mk in (b['_mergedFirebaseKeys'] as List)) {
-        if (mk.toString().isNotEmpty) list.add(mk.toString());
-      }
-    }
-    return list.toSet().toList();
-  }
-
-  Future<void> _patchBookingKeys(
-    List<String> keys,
-    JsonMap patch,
-  ) async {
-    final cleanKeys = keys.where((k) => k.isNotEmpty).toSet().toList();
-    if (cleanKeys.isEmpty) return;
-
-    final primaryKey = cleanKeys.first;
-    await http.patch(
-      Uri.parse('$kFirebaseDbUrl/bookings/$primaryKey.json'),
+    await http.put(
+      Uri.parse('$kFirebaseDbUrl/barbers/$id.json'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(patch),
+      body: jsonEncode(payload),
     );
 
-    if (cleanKeys.length > 1) {
-      for (final extraKey in cleanKeys.skip(1)) {
-        await http.delete(Uri.parse('$kFirebaseDbUrl/bookings/$extraKey.json'));
-      }
-    }
-    await _publishAllConfigToSite();
-  }
-
-  String _buildServiceSummary(Map b) {
-    final List<String> srvNames = [];
-    if (b['items'] is List) {
-      for (final it in (b['items'] as List).whereType()) {
-        if (it['name'] != null) {
-          srvNames.add(it['name'].toString());
+    if (mounted) {
+      setState(() {
+        final idx = _barbers.indexWhere((b) => (b['id'] ?? '').toString() == id);
+        if (idx >= 0) {
+          _barbers[idx] = payload;
+        } else {
+          _barbers.add(payload);
         }
-      }
+      });
     }
-    if (srvNames.isNotEmpty) return srvNames.join(' + ');
-    final fallback = (b['serviceName'] ?? b['service'] ?? '').toString().trim();
-    return fallback.isEmpty ? 'Atendimento agendado' : fallback;
+
+    await _publishAllConfigToSite(showFeedback: true);
   }
 
-  Future<void> _openWhatsApp(Map b, {bool rescheduled = false}) async {
-    final client = _extractBookingClientName(b);
-    final dateLbl = _extractBookingDateRaw(b);
-    final timeLbl = _extractBookingTimeRaw(b);
-    final barber = _extractBookingBarberRaw(b);
-    final srvSummary = _buildServiceSummary(b);
+  Future<void> _deleteBarber(JsonMap br) async {
+    final id = (br['id'] ?? '').toString();
+    final name = (br['name'] ?? '').toString();
 
-    final rawPhone =
-        _extractBookingClientPhone(b).replaceAll(RegExp(r'\D'), '');
-
-    String normalizedPhone = rawPhone;
-    if (normalizedPhone.length >= 10 && !normalizedPhone.startsWith('55')) {
-      normalizedPhone = '55$normalizedPhone';
+    if (id.isNotEmpty) {
+      await http.delete(Uri.parse('$kFirebaseDbUrl/barbers/$id.json'));
     }
 
-    final reminderText = rescheduled
-        ? 'Olá $client! Seu horário na *Barbearia Mr Jone* foi atualizado para *$dateLbl* às *$timeLbl* ($srvSummary com *$barber*). Estamos à disposição!'
-        : 'Olá $client! Lembrete da *Barbearia Mr Jone*: seu horário está marcado para *$dateLbl* às *$timeLbl* ($srvSummary com *$barber*). Estamos à sua espera!';
+    if (mounted) {
+      setState(() {
+        _barbers.removeWhere((b) {
+          final bId = (b['id'] ?? '').toString();
+          final bName = (b['name'] ?? '').toString();
+          return (id.isNotEmpty && bId == id) ||
+              (name.isNotEmpty && _sameBarberName(bName, name));
+        });
+        _selectedBarberTabIdx = 0;
+      });
+    }
 
-    final encodedMsg = Uri.encodeComponent(reminderText);
-    final Uri waUri = normalizedPhone.length >= 12
-        ? Uri.parse(
-            'https://api.whatsapp.com/send?phone=$normalizedPhone&text=$encodedMsg')
-        : Uri.parse('https://api.whatsapp.com/send?text=$encodedMsg');
+    await _publishAllConfigToSite(showFeedback: true);
+  }
+
+  Future<void> _publishAllConfigToSite({bool showFeedback = false}) async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _statusMsg = 'Sincronizando App e Site...';
+      });
+    }
 
     try {
-      final launched = await launchUrl(
-        waUri,
-        mode: LaunchMode.externalApplication,
+      await _publishOccupiedSlotsFromBookings(
+        _bookings,
+        expediente: _expediente,
+        pauses: _pauses,
+        services: _services,
+        plans: _plans,
+        barbers: _barbers,
       );
-      if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Não foi possível abrir o WhatsApp neste dispositivo.'),
-          ),
-        );
+      await _syncPlanRulesToSiteRemote();
+
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _statusMsg =
+              'Sincronizado em ${_formatTimeNow()} • App ↔ Site em tempo real';
+        });
+        if (showFeedback) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Configurações e grade sincronizadas com o site!'),
+            ),
+          );
+        }
       }
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erro ao tentar abrir o WhatsApp.')),
-      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _statusMsg = 'Falha na sincronização: $e';
+        });
+      }
     }
   }
+
+  Future<void> _saveNewAdminPass(String rawPass) async {
+    final clean = rawPass.trim();
+    if (clean.length < 4) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Digite uma senha com pelo menos 4 caracteres.'),
+        ),
+      );
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('mrjone_admin_pass', clean);
+    _newPassController.clear();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Nova senha admin salva com sucesso!')),
+    );
+  }
+
+  void _logoutAccount() {
+    _passController.clear();
+    if (!mounted) return;
+    setState(() {
+      _unlocked = false;
+      _tabIndex = 0;
+    });
+  }
 // ================= FIM BLOCO 20/25 =================
-    // ================= BLOCO 21/25 =================
+// ================= BLOCO 21/25 =================
   @override
   Widget build(BuildContext context) {
     if (!_unlocked) {
@@ -2885,8 +2824,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     onSubmitted: (_) => _checkPass(),
                     decoration: InputDecoration(
                       labelText: 'Palavra-passe Admin',
-                      prefixIcon: const Icon(Icons.lock_outline,
-                          color: Color(0xFFD4AF37)),
+                      prefixIcon: const Icon(
+                        Icons.lock_outline,
+                        color: Color(0xFFD4AF37),
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -3032,7 +2973,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 // ================= FIM BLOCO 21/25 =================
-   // ================= BLOCO 22/25 =================
+// ================= BLOCO 22/25 =================
   Widget _buildHeaderBanner() {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -3119,13 +3060,16 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       ),
                       Row(
                         children: [
-                          const Text('Só concluídos',
-                              style: TextStyle(fontSize: 10)),
+                          const Text(
+                            'Só concluídos',
+                            style: TextStyle(fontSize: 10),
+                          ),
                           Switch(
                             value: _onlyCompletedInAccounting,
-                            activeColor: const Color(0xFFD4AF37),
-                            onChanged: (v) =>
-                                setState(() => _onlyCompletedInAccounting = v),
+                            activeTrackColor: const Color(0xFFD4AF37),
+                            onChanged: (v) => setState(
+                              () => _onlyCompletedInAccounting = v,
+                            ),
                           ),
                         ],
                       ),
@@ -3148,27 +3092,36 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         children: [
                           Padding(
                             padding: EdgeInsets.all(6),
-                            child: Text('Período',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFF3D97E))),
+                            child: Text(
+                              'Período',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFF3D97E),
+                              ),
+                            ),
                           ),
                           Padding(
                             padding: EdgeInsets.all(6),
-                            child: Text('Faturamento',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.greenAccent)),
+                            child: Text(
+                              'Faturamento',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.greenAccent,
+                              ),
+                            ),
                           ),
                           Padding(
                             padding: EdgeInsets.all(6),
-                            child: Text('Comissão Barbeiros',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.orangeAccent)),
+                            child: Text(
+                              'Comissão Barbeiros',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orangeAccent,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -3211,33 +3164,45 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           children: [
                             Padding(
                               padding: EdgeInsets.all(6),
-                              child: Text('Cliente',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFFF3D97E))),
+                              child: Text(
+                                'Cliente',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFF3D97E),
+                                ),
+                              ),
                             ),
                             Padding(
                               padding: EdgeInsets.all(6),
-                              child: Text('Serviço',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold)),
+                              child: Text(
+                                'Serviço',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                             Padding(
                               padding: EdgeInsets.all(6),
-                              child: Text('Barbeiro',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold)),
+                              child: Text(
+                                'Barbeiro',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                             Padding(
                               padding: EdgeInsets.all(6),
-                              child: Text('Valor',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.greenAccent)),
+                              child: Text(
+                                'Valor',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.greenAccent,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -3257,7 +3222,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                                 child: Text(
                                   _buildServiceSummary(b),
                                   style: const TextStyle(
-                                      fontSize: 11, color: Colors.white70),
+                                    fontSize: 11,
+                                    color: Colors.white70,
+                                  ),
                                 ),
                               ),
                               Padding(
@@ -3272,9 +3239,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                                 child: Text(
                                   'R\$ ${val.toStringAsFixed(2)}',
                                   style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.greenAccent),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.greenAccent,
+                                  ),
                                 ),
                               ),
                             ],
@@ -3340,7 +3308,394 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       onSelected: (_) => setState(() => _accountingPeriodFilter = key),
     );
   }
+// ================= FIM BLOCO 22/25 =================
+ // ================= BLOCO 23/25 =================
+  Widget _buildScheduleGridSection() {
+    final String expKey = _expedienteKeyForDate(_gridSelectedDate);
+    final JsonMap dayExp = _expediente[expKey] ?? {};
+    final bool isOpen = dayExp['ativo'] == true;
+    final String dateBR = _formatDateBR(_gridSelectedDate);
+    final String weekdayName = _weekdayFullName(_gridSelectedDate);
 
+    final List<String> barberNames = _barbers
+        .map((br) => (br['name'] ?? '').toString().trim())
+        .where((n) => n.isNotEmpty)
+        .toList();
+
+    if (barberNames.isEmpty) {
+      barberNames.add('Jhonny');
+    }
+
+    final int safeBarberIdx =
+        _selectedBarberTabIdx.clamp(0, barberNames.length - 1);
+    final String activeBarberName = barberNames[safeBarberIdx];
+
+    return Card(
+      color: const Color(0xFF141417),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0x44D4AF37), width: 1),
+      ),
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ...List<Widget>.generate(7, (int idx) {
+                    final DateTime d = DateTime.now().add(Duration(days: idx));
+                    final bool selected = _isSameDay(d, _gridSelectedDate);
+                    final countDay = _bookings.where((bk) {
+                      final st = (bk['status'] ?? 'confirmado')
+                          .toString()
+                          .trim()
+                          .toLowerCase();
+                      if (st == 'cancelado' || st == 'cancelada') return false;
+                      final dt = _parseBookingDate(bk);
+                      return dt != null && _isSameDay(dt, d);
+                    }).length;
+                    final String lbl =
+                        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} • ${_weekdayFullName(d).substring(0, 3)}${countDay > 0 ? ' ($countDay)' : ''}';
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ChoiceChip(
+                        label: Text(lbl, style: const TextStyle(fontSize: 11)),
+                        selected: selected,
+                        selectedColor: const Color(0xFFD4AF37),
+                        labelStyle: TextStyle(
+                          color: selected ? Colors.black : Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        onSelected: (_) =>
+                            setState(() => _gridSelectedDate = d),
+                      ),
+                    );
+                  }),
+                  IconButton(
+                    tooltip: 'Escolher outra data',
+                    icon: const Icon(
+                      Icons.calendar_month,
+                      color: Color(0xFFD4AF37),
+                    ),
+                    onPressed: () async {
+                      final DateTime? picked = await showDatePicker(
+                        context: context,
+                        initialDate: _gridSelectedDate,
+                        firstDate: DateTime(2024),
+                        lastDate: DateTime(2030),
+                      );
+                      if (picked != null && mounted) {
+                        setState(() => _gridSelectedDate = picked);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _services
+                    .where((s) => s['active'] != false)
+                    .map((srv) {
+                  final srvId = (srv['id'] ?? '').toString();
+                  final srvName = (srv['name'] ?? '').toString();
+                  final srvDur = int.tryParse('${srv['duration'] ?? 40}') ?? 40;
+                  final isSel = _gridSelectedServiceId == srvId;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(
+                        '$srvName (${srvDur}m)',
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                      selected: isSel,
+                      selectedColor: const Color(0xFFD4AF37),
+                      labelStyle: TextStyle(
+                        color: isSel ? Colors.black : Colors.white70,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      onSelected: (_) async {
+                        setState(() {
+                          _gridSelectedServiceId = srvId;
+                          _gridServiceDurationMinutes = srvDur;
+                        });
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setInt(kPrefGridServiceDuration, srvDur);
+                        await _publishOccupiedSlotsFromBookings(
+                          _bookings,
+                          expediente: _expediente,
+                          pauses: _pauses,
+                          services: _services,
+                          plans: _plans,
+                          barbers: _barbers,
+                        );
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF0E0E11),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0x44D4AF37)),
+              ),
+              padding: const EdgeInsets.all(4),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: List.generate(barberNames.length, (idx) {
+                    final bName = barberNames[idx];
+                    final isTabActive = idx == safeBarberIdx;
+                    final countForBarber = _bookings.where((bk) {
+                      final st = (bk['status'] ?? 'confirmado')
+                          .toString()
+                          .trim()
+                          .toLowerCase();
+                      if (st == 'cancelado' || st == 'cancelada') return false;
+                      final dt = _parseBookingDate(bk);
+                      return dt != null &&
+                          _isSameDay(dt, _gridSelectedDate) &&
+                          _sameBarberName(
+                            _extractBookingBarberRaw(bk),
+                            bName,
+                          );
+                    }).length;
+
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: InkWell(
+                        onTap: () =>
+                            setState(() => _selectedBarberTabIdx = idx),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isTabActive
+                                ? const Color(0xFFD4AF37)
+                                : const Color(0xFF1A1A20),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.content_cut,
+                                size: 14,
+                                color: isTabActive
+                                    ? Colors.black
+                                    : const Color(0xFFD4AF37),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '$bName ($countForBarber)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: isTabActive
+                                      ? Colors.black
+                                      : Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
+            const Divider(color: Colors.white12, height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    'AGENDA DE $activeBarberName • $weekdayName ($dateBR)',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFF3D97E),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _openManualEntryDialog(
+                    presetDateStr: dateBR,
+                    presetBarberName: activeBarberName,
+                    presetServiceId: _gridSelectedServiceId,
+                  ),
+                  icon: const Icon(
+                    Icons.add_circle_outline,
+                    size: 16,
+                    color: Color(0xFFD4AF37),
+                  ),
+                  label: const Text(
+                    '+ Encaixe',
+                    style: TextStyle(fontSize: 11, color: Color(0xFFF3D97E)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            ..._buildGridRowsForSingleBarber(
+              _gridSelectedDate,
+              activeBarberName,
+              isOpen,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildGridRowsForSingleBarber(
+    DateTime day,
+    String barberName,
+    bool isOpen,
+  ) {
+    final String dateBR = _formatDateBR(day);
+    final List<JsonMap> timeline = _buildServiceBasedTimelineItems(
+      day: day,
+      barberFilter: barberName,
+      serviceDurationMin: _gridServiceDurationMinutes,
+    );
+
+    if (timeline.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            isOpen
+                ? 'Nenhum horário disponível para serviço de $_gridServiceDurationMinutes min neste dia.'
+                : 'Expediente fechado neste dia. Ative na aba Horários.',
+            style: const TextStyle(fontSize: 12, color: Colors.white70),
+          ),
+        ),
+      ];
+    }
+
+    final List<Widget> rows = [];
+    for (final item in timeline) {
+      final String type = (item['type'] ?? '').toString();
+      final int startM = item['startMin'] as int;
+      final int endM = item['endMin'] as int;
+      final String slotStartStr = _minutesToTime(startM);
+      final String slotEndStr = _minutesToTime(endM);
+
+      if (type == 'booking') {
+        rows.add(_buildBookedClientCard(
+          item['booking'] as JsonMap,
+          barberName,
+        ));
+        continue;
+      }
+
+      if (type == 'pause') {
+        rows.add(
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF221517),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Colors.redAccent.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  '$slotStartStr até $slotEndStr',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.redAccent,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'PAUSA • ${item['reason']}',
+                    style: const TextStyle(fontSize: 12, color: Colors.white70),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        continue;
+      }
+
+      final int slotDur = endM - startM;
+      rows.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF19191E),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Row(
+            children: [
+              Text(
+                '$slotStartStr até $slotEndStr',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white70,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'LIVRE ($slotDur min)',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.greenAccent,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 30),
+                ),
+                onPressed: () => _openManualEntryDialog(
+                  presetDateStr: dateBR,
+                  presetTimeStr: slotStartStr,
+                  presetBarberName: barberName,
+                  presetServiceId: _gridSelectedServiceId,
+                ),
+                icon: const Icon(Icons.add, size: 15, color: Color(0xFFD4AF37)),
+                label: const Text(
+                  'Agendar',
+                  style: TextStyle(fontSize: 11, color: Color(0xFFF3D97E)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return rows;
+  }
+// ================= FIM BLOCO 23/25 =================
+// ================= BLOCO 24/25 =================
   Widget _buildBookedClientCard(JsonMap bk, String barberName) {
     final bool isDone = _isCompletedStatus(bk);
     final int startM = _timeToMinutes(_extractBookingTimeRaw(bk)) ?? 0;
@@ -3430,8 +3785,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               ),
               IconButton(
                 tooltip: 'Trocar Serviço / Editar Horário',
-                icon: const Icon(Icons.edit_note,
-                    color: Color(0xFFF3D97E), size: 26),
+                icon: const Icon(
+                  Icons.edit_note,
+                  color: Color(0xFFF3D97E),
+                  size: 26,
+                ),
                 onPressed: () => _openEditBookingDialog(bk),
               ),
             ],
@@ -3479,415 +3837,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     );
   }
 
-  List<Widget> _buildGridRowsForSingleBarber(
-    DateTime day,
-    String barberName,
-    bool isOpen,
-  ) {
-    final String dateBR = _formatDateBR(day);
-    final List<JsonMap> timeline = _buildServiceBasedTimelineItems(
-      day: day,
-      barberFilter: barberName,
-      serviceDurationMin: _gridServiceDurationMinutes,
-    );
-
-    if (timeline.isEmpty) {
-      return [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Text(
-            isOpen
-                ? 'Nenhum horário disponível para serviço de $_gridServiceDurationMinutes min neste dia.'
-                : 'Expediente fechado neste dia. Ative na aba Horários.',
-            style: const TextStyle(fontSize: 12, color: Colors.white70),
-          ),
-        ),
-      ];
-    }
-
-    final List<Widget> rows = [];
-    for (final item in timeline) {
-      final String type = (item['type'] ?? '').toString();
-      final int startM = item['startMin'] as int;
-      final int endM = item['endMin'] as int;
-      final String slotStartStr = _minutesToTime(startM);
-      final String slotEndStr = _minutesToTime(endM);
-
-      if (type == 'booking') {
-        rows.add(_buildBookedClientCard(
-            item['booking'] as JsonMap, barberName));
-        continue;
-      }
-
-      if (type == 'pause') {
-        rows.add(
-          Container(
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF221517),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  '$slotStartStr até $slotEndStr',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.redAccent,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'PAUSA • ${item['reason']}',
-                    style:
-                        const TextStyle(fontSize: 12, color: Colors.white70),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-        continue;
-      }
-
-      final int slotDur = endM - startM;
-      rows.add(
-        Container(
-          margin: const EdgeInsets.only(bottom: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 10 vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF221517),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  '$slotStartStr até $slotEndStr',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.redAccent,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'PAUSA • ${item['reason']}',
-                    style:
-                        const TextStyle(fontSize: 12, color: Colors.white70),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-        continue;
-      }
-
-      final int slotDur = endM - startM;
-      rows.add(
-        Container(
-          margin: const EdgeInsets.only(bottom: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFF19191E),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Row(
-            children: [
-              Text(
-                '$slotStartStr até $slotEndStr',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white70,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'LIVRE (${slotDur} min)',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.greenAccent,
-                  ),
-                ),
-              ),
-              TextButton.icon(
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  minimumSize: const Size(0, 30),
-                ),
-                onPressed: () => _openManualEntryDialog(
-                  presetDateStr: dateBR,
-                  presetTimeStr: slotStartStr,
-                  presetBarberName: barberName,
-                  presetServiceId: _gridSelectedServiceId,
-                ),
-                icon: const Icon(Icons.add, size: 15, color: Color(0xFFD4AF37)),
-                label: const Text(
-                  'Agendar',
-                  style: TextStyle(fontSize: 11, color: Color(0xFFF3D97E)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return rows;
-  }
-// ================= FIM BLOCO 22/25
-// ================= BLOCO 23/25 =================
-  Widget _buildScheduleGridSection() {
-    final String expKey = _expedienteKeyForDate(_gridSelectedDate);
-    final JsonMap dayExp = _expediente[expKey] ?? {};
-    final bool isOpen = dayExp['ativo'] == true;
-    final String dateBR = _formatDateBR(_gridSelectedDate);
-    final String weekdayName = _weekdayFullName(_gridSelectedDate);
-
-    final List<String> barberNames = _barbers
-        .map((br) => (br['name'] ?? '').toString().trim())
-        .where((n) => n.isNotEmpty)
-        .toList();
-
-    if (barberNames.isEmpty) {
-      barberNames.add('Jhonny');
-    }
-
-    final int safeBarberIdx =
-        _selectedBarberTabIdx.clamp(0, barberNames.length - 1);
-    final String activeBarberName = barberNames[safeBarberIdx];
-
-    return Card(
-      color: const Color(0xFF141417),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0x44D4AF37), width: 1),
-      ),
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  ...List<Widget>.generate(7, (int idx) {
-                    final DateTime d = DateTime.now().add(Duration(days: idx));
-                    final bool selected = _isSameDay(d, _gridSelectedDate);
-                    final countDay = _bookings.where((bk) {
-                      final st = (bk['status'] ?? 'confirmado')
-                          .toString()
-                          .trim()
-                          .toLowerCase();
-                      if (st == 'cancelado' || st == 'cancelada') return false;
-                      final dt = _parseBookingDate(bk);
-                      return dt != null && _isSameDay(dt, d);
-                    }).length;
-                    final String lbl =
-                        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')} • ${_weekdayFullName(d).substring(0, 3)}${countDay > 0 ? ' ($countDay)' : ''}';
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: ChoiceChip(
-                        label: Text(lbl, style: const TextStyle(fontSize: 11)),
-                        selected: selected,
-                        selectedColor: const Color(0xFFD4AF37),
-                        labelStyle: TextStyle(
-                          color: selected ? Colors.black : Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        onSelected: (_) =>
-                            setState(() => _gridSelectedDate = d),
-                      ),
-                    );
-                  }),
-                  IconButton(
-                    tooltip: 'Escolher outra data',
-                    icon: const Icon(Icons.calendar_month,
-                        color: Color(0xFFD4AF37)),
-                    onPressed: () async {
-                      final DateTime? picked = await showDatePicker(
-                        context: context,
-                        initialDate: _gridSelectedDate,
-                        firstDate: DateTime(2024),
-                        lastDate: DateTime(2030),
-                      );
-                      if (picked != null && mounted) {
-                        setState(() => _gridSelectedDate = picked);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _services
-                    .where((s) => s['active'] != false)
-                    .map((srv) {
-                  final srvId = (srv['id'] ?? '').toString();
-                  final srvName = (srv['name'] ?? '').toString();
-                  final srvDur = int.tryParse('${srv['duration'] ?? 40}') ?? 40;
-                  final isSel = _gridSelectedServiceId == srvId;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ChoiceChip(
-                      label: Text(
-                        '$srvName (${srvDur}m)',
-                        style: const TextStyle(fontSize: 10),
-                      ),
-                      selected: isSel,
-                      selectedColor: const Color(0xFFD4AF37),
-                      labelStyle: TextStyle(
-                        color: isSel ? Colors.black : Colors.white70,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      onSelected: (_) async {
-                        setState(() {
-                          _gridSelectedServiceId = srvId;
-                          _gridServiceDurationMinutes = srvDur;
-                        });
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setInt(kPrefGridServiceDuration, srvDur);
-                        await _publishOccupiedSlotsFromBookings(
-                          _bookings,
-                          expediente: _expediente,
-                          pauses: _pauses,
-                          services: _services,
-                          plans: _plans,
-                          barbers: _barbers,
-                        );
-                      },
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF0E0E11),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0x44D4AF37)),
-              ),
-              padding: const EdgeInsets.all(4),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: List.generate(barberNames.length, (idx) {
-                    final bName = barberNames[idx];
-                    final isTabActive = idx == safeBarberIdx;
-                    final countForBarber = _bookings.where((bk) {
-                      final st = (bk['status'] ?? 'confirmado')
-                          .toString()
-                          .trim()
-                          .toLowerCase();
-                      if (st == 'cancelado' || st == 'cancelada') return false;
-                      final dt = _parseBookingDate(bk);
-                      return dt != null &&
-                          _isSameDay(dt, _gridSelectedDate) &&
-                          _sameBarberName(
-                              _extractBookingBarberRaw(bk), bName);
-                    }).length;
-
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: InkWell(
-                        onTap: () =>
-                            setState(() => _selectedBarberTabIdx = idx),
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: isTabActive
-                                ? const Color(0xFFD4AF37)
-                                : const Color(0xFF1A1A20),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.content_cut,
-                                size: 14,
-                                color: isTabActive
-                                    ? Colors.black
-                                    : const Color(0xFFD4AF37),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '$bName ($countForBarber)',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: isTabActive
-                                      ? Colors.black
-                                      : Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-            ),
-            const Divider(color: Colors.white12, height: 18),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    'AGENDA DE $activeBarberName • $weekdayName ($dateBR)',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFFF3D97E),
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => _openManualEntryDialog(
-                    presetDateStr: dateBR,
-                    presetBarberName: activeBarberName,
-                    presetServiceId: _gridSelectedServiceId,
-                  ),
-                  icon: const Icon(Icons.add_circle_outline,
-                      size: 16, color: Color(0xFFD4AF37)),
-                  label: const Text(
-                    '+ Encaixe',
-                    style: TextStyle(fontSize: 11, color: Color(0xFFF3D97E)),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            ..._buildGridRowsForSingleBarber(
-              _gridSelectedDate,
-              activeBarberName,
-              isOpen,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _miniActionBtn({
     required String label,
     required IconData icon,
@@ -3924,18 +3873,22 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   Future<void> _openEditBookingDialog(JsonMap b) async {
-    final nameCtrl =
-        TextEditingController(text: _extractBookingClientName(b));
-    final phoneCtrl =
-        TextEditingController(text: _extractBookingClientPhone(b));
+    final nameCtrl = TextEditingController(
+      text: _extractBookingClientName(b),
+    );
+    final phoneCtrl = TextEditingController(
+      text: _extractBookingClientPhone(b),
+    );
     final dateCtrl = TextEditingController(
-        text: _extractBookingDateRaw(b).isNotEmpty
-            ? _extractBookingDateRaw(b)
-            : _formatDateBR(DateTime.now()));
+      text: _extractBookingDateRaw(b).isNotEmpty
+          ? _extractBookingDateRaw(b)
+          : _formatDateBR(DateTime.now()),
+    );
     final timeCtrl = TextEditingController(
-        text: _extractBookingTimeRaw(b).isNotEmpty
-            ? _extractBookingTimeRaw(b)
-            : '09:00');
+      text: _extractBookingTimeRaw(b).isNotEmpty
+          ? _extractBookingTimeRaw(b)
+          : '09:00',
+    );
 
     String selectedBarber = _extractBookingBarberRaw(b);
 
@@ -3961,8 +3914,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
               clientName: nameCtrl.text,
               clientPhone: phoneCtrl.text,
             );
-            if (!dynamicOptions
-                .any((o) => o['name'] == selectedService['name'])) {
+            if (!dynamicOptions.any(
+              (o) => o['name'] == selectedService['name'],
+            )) {
               selectedService = dynamicOptions.first;
             }
             final member = _findPlanMember(
@@ -3997,7 +3951,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         child: Text(
                           'PLANO ATIVO (vence em ${member['expiresAt']}): Avulso bloqueado; direcionado somente ao plano.',
                           style: const TextStyle(
-                              fontSize: 11, color: Colors.greenAccent),
+                            fontSize: 11,
+                            color: Colors.greenAccent,
+                          ),
                         ),
                       ),
                     if (hasExpiredPlan)
@@ -4012,14 +3968,17 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         child: Text(
                           'PLANO VENCIDO (${member['expiresAt']}): Liberado para escolher preços avulsos.',
                           style: const TextStyle(
-                              fontSize: 11, color: Colors.orangeAccent),
+                            fontSize: 11,
+                            color: Colors.orangeAccent,
+                          ),
                         ),
                       ),
                     TextField(
                       controller: nameCtrl,
                       onChanged: (_) => setModalState(() {}),
-                      decoration:
-                          const InputDecoration(labelText: 'Nome do Cliente'),
+                      decoration: const InputDecoration(
+                        labelText: 'Nome do Cliente',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
@@ -4027,7 +3986,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       onChanged: (_) => setModalState(() {}),
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
-                          labelText: 'WhatsApp / Telefone'),
+                        labelText: 'WhatsApp / Telefone',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -4036,7 +3996,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           child: TextField(
                             controller: dateCtrl,
                             decoration: const InputDecoration(
-                                labelText: 'Data (DD/MM/AAAA)'),
+                              labelText: 'Data (DD/MM/AAAA)',
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -4044,7 +4005,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           child: TextField(
                             controller: timeCtrl,
                             decoration: const InputDecoration(
-                                labelText: 'Hora Início (HH:MM)'),
+                              labelText: 'Hora Início (HH:MM)',
+                            ),
                           ),
                         ),
                       ],
@@ -4056,7 +4018,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ),
                     const SizedBox(height: 4),
                     DropdownButtonFormField<String>(
-                      value: selectedService['name'].toString(),
+                      initialValue: selectedService['name'].toString(),
                       isExpanded: true,
                       dropdownColor: const Color(0xFF1D1D22),
                       items: dynamicOptions.map((opt) {
@@ -4085,12 +4047,19 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       style: TextStyle(fontSize: 12, color: Color(0xFFF3D97E)),
                     ),
                     DropdownButtonFormField<String>(
-                      value: _barbers.any((br) => _sameBarberName(
-                              br['name']?.toString(), selectedBarber))
+                      initialValue: _barbers.any(
+                        (br) => _sameBarberName(
+                          br['name']?.toString(),
+                          selectedBarber,
+                        ),
+                      )
                           ? _barbers
-                              .firstWhere((br) => _sameBarberName(
+                              .firstWhere(
+                                (br) => _sameBarberName(
                                   br['name']?.toString(),
-                                  selectedBarber))['name']
+                                  selectedBarber,
+                                ),
+                              )['name']
                               .toString()
                           : (_barbers.isNotEmpty
                               ? _barbers.first['name'].toString()
@@ -4117,7 +4086,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('Cancelar'),
                 ),
-                 ElevatedButton(
+                ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFD4AF37),
                     foregroundColor: Colors.black,
@@ -4137,8 +4106,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           startMin: startM,
                           durationMin: durM,
                           barberName: selectedBarber,
-                          ignoreBookingKey: (b['firebaseKey'] ?? '').toString(),
+                          ignoreBookingKey:
+                              (b['firebaseKey'] ?? '').toString(),
                         )) {
+                      if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           backgroundColor: Colors.redAccent,
@@ -4180,7 +4151,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     };
 
                     await _patchBookingKeys(
-                        _allKeysForBooking(b), updatedPatch);
+                      _allKeysForBooking(b),
+                      updatedPatch,
+                    );
                     await _upsertClientFromBooking(
                       name: nameCtrl.text.trim(),
                       phone: phoneCtrl.text,
@@ -4200,8 +4173,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       },
     );
   }
-// ================= FIM BLOCO 23/25 =================
-// ================= BLOCO 24/25 =================
+// ================= FIM BLOCO 24/25 =================
+// ================= BLOCO 25/25 =================
   Future<void> _openManualEntryDialog({
     String? presetDateStr,
     String? presetTimeStr,
@@ -4211,7 +4184,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     final nameCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
     final dateCtrl = TextEditingController(
-        text: presetDateStr ?? _formatDateBR(_gridSelectedDate));
+      text: presetDateStr ?? _formatDateBR(_gridSelectedDate),
+    );
     final timeCtrl = TextEditingController(text: presetTimeStr ?? '09:00');
 
     String selectedBarber = presetBarberName ??
@@ -4231,23 +4205,27 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           builder: (ctx, setModalState) {
             final qName = _normalizeNameShared(nameCtrl.text);
             final qPhone = _normalizePhone(phoneCtrl.text);
-            final List<JsonMap> matchingClients = (qName.length >= 2 ||
-                    qPhone.length >= 4)
-                ? _clients.where((c) {
-                    final cn =
-                        _normalizeNameShared((c['name'] ?? '').toString());
-                    final cp = _normalizePhone((c['phone'] ?? '').toString());
-                    return (qName.length >= 2 && cn.contains(qName)) ||
-                        (qPhone.length >= 4 && cp.contains(qPhone));
-                  }).take(4).toList()
-                : [];
+            final List<JsonMap> matchingClients =
+                (qName.length >= 2 || qPhone.length >= 4)
+                    ? _clients.where((c) {
+                        final cn = _normalizeNameShared(
+                          (c['name'] ?? '').toString(),
+                        );
+                        final cp = _normalizePhone(
+                          (c['phone'] ?? '').toString(),
+                        );
+                        return (qName.length >= 2 && cn.contains(qName)) ||
+                            (qPhone.length >= 4 && cp.contains(qPhone));
+                      }).take(4).toList()
+                    : [];
 
             final dynamicOptions = _allowedCatalogOptions(
               clientName: nameCtrl.text,
               clientPhone: phoneCtrl.text,
             );
-            if (!dynamicOptions
-                .any((o) => o['name'] == selectedService['name'])) {
+            if (!dynamicOptions.any(
+              (o) => o['name'] == selectedService['name'],
+            )) {
               selectedService = dynamicOptions.first;
             }
             final member = _findPlanMember(
@@ -4301,7 +4279,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         child: Text(
                           'Cliente do Plano (válido até ${member['expiresAt']}): direcionado exclusivamente ao plano.',
                           style: const TextStyle(
-                              fontSize: 11, color: Colors.greenAccent),
+                            fontSize: 11,
+                            color: Colors.greenAccent,
+                          ),
                         ),
                       ),
                     if (hasExpiredPlan)
@@ -4316,7 +4296,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         child: Text(
                           'Plano vencido em ${member['expiresAt']}: opções avulsas liberadas.',
                           style: const TextStyle(
-                              fontSize: 11, color: Colors.orangeAccent),
+                            fontSize: 11,
+                            color: Colors.orangeAccent,
+                          ),
                         ),
                       ),
                     TextField(
@@ -4341,7 +4323,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             const Text(
                               'Clientes salvos (toque para preencher):',
                               style: TextStyle(
-                                  fontSize: 10, color: Color(0xFFF3D97E)),
+                                fontSize: 10,
+                                color: Color(0xFFF3D97E),
+                              ),
                             ),
                             ...matchingClients.map((mc) {
                               final mcName = (mc['name'] ?? '').toString();
@@ -4354,13 +4338,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                                   });
                                 },
                                 child: Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                  ),
                                   child: Text(
                                     '• $mcName ($mcPhone)',
                                     style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.greenAccent),
+                                      fontSize: 12,
+                                      color: Colors.greenAccent,
+                                    ),
                                   ),
                                 ),
                               );
@@ -4375,7 +4361,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       onChanged: (_) => setModalState(() {}),
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
-                          labelText: 'WhatsApp (DDD + Número)'),
+                        labelText: 'WhatsApp (DDD + Número)',
+                      ),
                     ),
                     const SizedBox(height: 12),
                     const Text(
@@ -4383,7 +4370,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       style: TextStyle(fontSize: 12, color: Color(0xFFF3D97E)),
                     ),
                     DropdownButtonFormField<String>(
-                      value: selectedService['name'].toString(),
+                      initialValue: selectedService['name'].toString(),
                       isExpanded: true,
                       dropdownColor: const Color(0xFF1D1D22),
                       items: dynamicOptions.map((opt) {
@@ -4414,7 +4401,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             controller: dateCtrl,
                             onChanged: (_) => setModalState(() {}),
                             decoration: const InputDecoration(
-                                labelText: 'Data (DD/MM/AAAA)'),
+                              labelText: 'Data (DD/MM/AAAA)',
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -4423,7 +4411,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             controller: timeCtrl,
                             onChanged: (_) => setModalState(() {}),
                             decoration: const InputDecoration(
-                                labelText: 'Hora Início (HH:MM)'),
+                              labelText: 'Hora Início (HH:MM)',
+                            ),
                           ),
                         ),
                       ],
@@ -4473,12 +4462,19 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       style: TextStyle(fontSize: 12, color: Color(0xFFF3D97E)),
                     ),
                     DropdownButtonFormField<String>(
-                      value: _barbers.any((b) => _sameBarberName(
-                              b['name']?.toString(), selectedBarber))
+                      initialValue: _barbers.any(
+                        (b) => _sameBarberName(
+                          b['name']?.toString(),
+                          selectedBarber,
+                        ),
+                      )
                           ? _barbers
-                              .firstWhere((b) => _sameBarberName(
+                              .firstWhere(
+                                (b) => _sameBarberName(
                                   b['name']?.toString(),
-                                  selectedBarber))['name']
+                                  selectedBarber,
+                                ),
+                              )['name']
                               .toString()
                           : (_barbers.isNotEmpty
                               ? _barbers.first['name'].toString()
@@ -4538,6 +4534,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           durationMin: durM,
                           barberName: selectedBarber,
                         )) {
+                      if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           backgroundColor: Colors.redAccent,
@@ -4591,23 +4588,32 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         if (parsedDt != null) {
                           _gridSelectedDate = parsedDt;
                         }
-                        final bIdx = _barbers.indexWhere((br) =>
-                            _sameBarberName(
-                                br['name']?.toString(), selectedBarber));
+                        final bIdx = _barbers.indexWhere(
+                          (br) => _sameBarberName(
+                            br['name']?.toString(),
+                            selectedBarber,
+                          ),
+                        );
                         if (bIdx >= 0) {
                           _selectedBarberTabIdx = bIdx;
                         }
-                        _bookings.removeWhere((item) =>
-                            _bookingDedupeKey(
-                                item, (item['firebaseKey'] ?? '').toString()) ==
-                            _bookingDedupeKey(payload, deterministicId));
+                        _bookings.removeWhere(
+                          (item) =>
+                              _bookingDedupeKey(
+                                item,
+                                (item['firebaseKey'] ?? '').toString(),
+                              ) ==
+                              _bookingDedupeKey(payload, deterministicId),
+                        );
                         _bookings.add(payload);
                       });
                     }
 
                     await http.put(
                       Uri.parse(
-                          '$kFirebaseDbUrl/bookings/$deterministicId.json'),
+                        '$kFirebaseDbUrl/bookings/$deterministicId.json',
+                      ),
+                      ),
                       headers: {'Content-Type': 'application/json'},
                       body: jsonEncode(payload),
                     );
@@ -4722,14 +4728,18 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   _openCatalogItemDialog(existing: item, isPlan: isPlan),
             ),
             IconButton(
-              icon: const Icon(Icons.delete_outline,
-                  color: Colors.redAccent, size: 20),
+              icon: const Icon(
+                Icons.delete_outline,
+                color: Colors.redAccent,
+                size: 20,
+              ),
               onPressed: () async {
                 final node = isPlan ? 'plans' : 'services';
                 final id = (item['id'] ?? '').toString();
                 if (id.isNotEmpty) {
-                  await http
-                      .delete(Uri.parse('$kFirebaseDbUrl/$node/$id.json'));
+                  await http.delete(
+                    Uri.parse('$kFirebaseDbUrl/$node/$id.json'),
+                  );
                 }
                 if (mounted) {
                   setState(() {
@@ -4753,18 +4763,22 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     JsonMap? existing,
     required bool isPlan,
   }) async {
-    final nameCtrl =
-        TextEditingController(text: (existing?['name'] ?? '').toString());
+    final nameCtrl = TextEditingController(
+      text: (existing?['name'] ?? '').toString(),
+    );
     final catCtrl = TextEditingController(
-        text: (existing?['category'] ?? (isPlan ? 'Planos Mensais' : 'Cortes'))
-            .toString());
+      text: (existing?['category'] ?? (isPlan ? 'Planos Mensais' : 'Cortes'))
+          .toString(),
+    );
     final priceCtrl = TextEditingController(
-        text: (existing?['price'] ?? (isPlan ? '110.0' : '40.0')).toString());
+      text: (existing?['price'] ?? (isPlan ? '110.0' : '40.0')).toString(),
+    );
     final durCtrl = TextEditingController(
-        text: (existing?['duration'] ?? '40').toString());
+      text: (existing?['duration'] ?? '40').toString(),
+    );
     final sessCtrl = TextEditingController(
-        text: (existing?['sessionsPerMonth'] ?? (isPlan ? '4' : '1'))
-            .toString());
+      text: (existing?['sessionsPerMonth'] ?? (isPlan ? '4' : '1')).toString(),
+    );
     bool isActive = existing?['active'] != false;
 
     await showDialog(
@@ -4800,8 +4814,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           child: TextField(
                             controller: priceCtrl,
                             keyboardType: TextInputType.number,
-                            decoration:
-                                const InputDecoration(labelText: 'Preço (R\$)'),
+                            decoration: const InputDecoration(
+                              labelText: 'Preço (R\$)',
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -4810,7 +4825,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                             controller: durCtrl,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                                labelText: 'Duração (min)'),
+                              labelText: 'Duração (min)',
+                            ),
                           ),
                         ),
                       ],
@@ -4821,15 +4837,18 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         controller: sessCtrl,
                         keyboardType: TextInputType.number,
                         decoration: const InputDecoration(
-                            labelText: 'Atendimentos por mês'),
+                          labelText: 'Atendimentos por mês',
+                        ),
                       ),
                     ],
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Visível no App e no Site',
-                          style: TextStyle(fontSize: 13)),
+                      title: const Text(
+                        'Visível no App e no Site',
+                        style: TextStyle(fontSize: 13),
+                      ),
                       value: isActive,
-                      activeColor: const Color(0xFFD4AF37),
+                      activeTrackColor: const Color(0xFFD4AF37),
                       onChanged: (v) => setModalState(() => isActive = v),
                     ),
                   ],
@@ -4850,13 +4869,13 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     final id = (existing?['id'] ??
                             '${isPlan ? 'pln' : 'srv'}_${DateTime.now().millisecondsSinceEpoch}')
                         .toString();
-
                     final payload = {
                       'id': id,
                       'name': nameCtrl.text.trim(),
                       'category': catCtrl.text.trim(),
                       'price': double.tryParse(
-                              priceCtrl.text.replaceAll(',', '.')) ??
+                            priceCtrl.text.replaceAll(',', '.'),
+                          ) ??
                           0.0,
                       'duration': int.tryParse(durCtrl.text.trim()) ?? 40,
                       'isPlan': isPlan,
@@ -4896,11 +4915,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
           },
         );
       },
-        
     );
   }
-// ================= FIM BLOCO 24/25 =================
-// ================= BLOCO 25/25 =================
+
   Widget _buildExpedienteTab() {
     const orderedKeys = ['1', '2', '3', '4', '5', '6', '0'];
 
@@ -4976,7 +4993,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           child: Text(
                             t2Ativo ? 'Remover Turno 2' : '+ Adicionar Turno 2',
                             style: const TextStyle(
-                                fontSize: 11, color: Colors.orangeAccent),
+                              fontSize: 11,
+                              color: Colors.orangeAccent,
+                            ),
                           ),
                         ),
                     ],
@@ -4987,8 +5006,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         Expanded(
                           child: TextField(
                             controller: _expControllers['${dayKey}_t1Ini'],
-                            decoration:
-                                const InputDecoration(labelText: 'Início 1'),
+                            decoration: const InputDecoration(
+                              labelText: 'Início 1',
+                            ),
                             onChanged: (v) => _expediente[dayKey]!['t1Inicio'] =
                                 _normalizeTimeShared(v),
                           ),
@@ -4997,8 +5017,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         Expanded(
                           child: TextField(
                             controller: _expControllers['${dayKey}_t1Fim'],
-                            decoration:
-                                const InputDecoration(labelText: 'Fim 1'),
+                            decoration: const InputDecoration(
+                              labelText: 'Fim 1',
+                            ),
                             onChanged: (v) => _expediente[dayKey]!['t1Fim'] =
                                 _normalizeTimeShared(v),
                           ),
@@ -5008,8 +5029,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           Expanded(
                             child: TextField(
                               controller: _expControllers['${dayKey}_t2Ini'],
-                              decoration:
-                                  const InputDecoration(labelText: 'Início 2'),
+                              decoration: const InputDecoration(
+                                labelText: 'Início 2',
+                              ),
                               onChanged: (v) => _expediente[dayKey]!['t2Inicio'] =
                                   _normalizeTimeShared(v),
                             ),
@@ -5018,8 +5040,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           Expanded(
                             child: TextField(
                               controller: _expControllers['${dayKey}_t2Fim'],
-                              decoration:
-                                  const InputDecoration(labelText: 'Fim 2'),
+                              decoration: const InputDecoration(
+                                labelText: 'Fim 2',
+                              ),
                               onChanged: (v) => _expediente[dayKey]!['t2Fim'] =
                                   _normalizeTimeShared(v),
                             ),
@@ -5091,8 +5114,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ],
     );
   }
-
-  Future<void> _openAddPauseDialog() async {
+   Future<void> _openAddPauseDialog() async {
     final dateCtrl = TextEditingController();
     final startCtrl = TextEditingController(text: '12:00');
     final endCtrl = TextEditingController(text: '14:00');
@@ -5102,8 +5124,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF141417),
-        title: const Text('Adicionar Pausa / Bloqueio',
-            style: TextStyle(color: Color(0xFFF3D97E), fontSize: 16)),
+        title: const Text(
+          'Adicionar Pausa / Bloqueio',
+          style: TextStyle(color: Color(0xFFF3D97E), fontSize: 16),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -5245,7 +5269,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: valid
                                 ? Colors.green.withValues(alpha: 0.25)
@@ -5276,7 +5302,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                       Text(
                         'WhatsApp: $phone',
                         style: const TextStyle(
-                            fontSize: 11, color: Colors.white60),
+                          fontSize: 11,
+                          color: Colors.white60,
+                        ),
                       ),
                     const SizedBox(height: 8),
                     Wrap(
@@ -5301,8 +5329,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           onTap: () async {
                             final id = (m['id'] ?? '').toString();
                             if (id.isNotEmpty) {
-                              await http.delete(Uri.parse(
-                                  '$kFirebaseDbUrl/plan_members/$id.json'));
+                              await http.delete(
+                                Uri.parse(
+                                  '$kFirebaseDbUrl/plan_members/$id.json',
+                                ),
+                              );
                             }
                             await _fetchClientsAndPlanMembers();
                             await _syncPlanRulesToSiteRemote();
@@ -5385,15 +5416,18 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
     JsonMap? existing,
     String? presetName,
     String? presetPhone,
-  }) async {
+ }) async {
     final nameCtrl = TextEditingController(
-        text: (existing?['clientName'] ?? presetName ?? '').toString());
+      text: (existing?['clientName'] ?? presetName ?? '').toString(),
+    );
     final phoneCtrl = TextEditingController(
-        text: (existing?['phone'] ?? presetPhone ?? '').toString());
+      text: (existing?['phone'] ?? presetPhone ?? '').toString(),
+    );
     final defaultExpiry =
         _formatDateBR(DateTime.now().add(const Duration(days: 30)));
     final expiryCtrl = TextEditingController(
-        text: (existing?['expiresAt'] ?? defaultExpiry).toString());
+      text: (existing?['expiresAt'] ?? defaultExpiry).toString(),
+    );
 
     JsonMap selectedPlan = _plans.firstWhere(
       (p) =>
@@ -5422,15 +5456,17 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                   children: [
                     TextField(
                       controller: nameCtrl,
-                      decoration:
-                          const InputDecoration(labelText: 'Nome do Cliente'),
+                      decoration: const InputDecoration(
+                        labelText: 'Nome do Cliente',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: phoneCtrl,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
-                          labelText: 'WhatsApp (DDD + Número)'),
+                        labelText: 'WhatsApp (DDD + Número)',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -5439,12 +5475,15 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                           child: TextField(
                             controller: expiryCtrl,
                             decoration: const InputDecoration(
-                                labelText: 'Data de Vencimento (DD/MM/AAAA)'),
+                              labelText: 'Data de Vencimento (DD/MM/AAAA)',
+                            ),
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.calendar_today,
-                              color: Color(0xFFD4AF37)),
+                          icon: const Icon(
+                            Icons.calendar_today,
+                            color: Color(0xFFD4AF37),
+                          ),
                           onPressed: () async {
                             final picked = await showDatePicker(
                               context: ctx,
@@ -5464,7 +5503,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: selectedPlan['name'].toString(),
+                      initialValue: selectedPlan['name'].toString(),
                       isExpanded: true,
                       dropdownColor: const Color(0xFF1D1D22),
                       items: _plans.map((p) {
@@ -5496,7 +5535,7 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                         style: TextStyle(fontSize: 12),
                       ),
                       value: autoReminderEnabled,
-                      activeColor: const Color(0xFFD4AF37),
+                      activeTrackColor: const Color(0xFFD4AF37),
                       onChanged: (v) =>
                           setModalState(() => autoReminderEnabled = v),
                     ),
@@ -5637,8 +5676,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             double gerado = 0;
             int atendimentos = 0;
             for (final bk in _bookings) {
-              if (!_shouldCountBooking(bk,
-                  onlyCompleted: _onlyCompletedInAccounting)) {
+              if (!_shouldCountBooking(
+                bk,
+                onlyCompleted: _onlyCompletedInAccounting,
+              )) {
                 continue;
               }
               if (!_matchesPeriod(bk, _barberReportPeriod)) continue;
@@ -5676,8 +5717,10 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                     ),
                     IconButton(
                       tooltip: 'Excluir Barbeiro',
-                      icon: const Icon(Icons.delete_outline,
-                          color: Colors.redAccent),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                      ),
                       onPressed: () => _confirmDeleteBarber(br),
                     ),
                   ],
@@ -5726,19 +5769,24 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 
   Future<void> _openBarberDialog({JsonMap? existing}) async {
-    final nameCtrl =
-        TextEditingController(text: (existing?['name'] ?? '').toString());
+    final nameCtrl = TextEditingController(
+      text: (existing?['name'] ?? '').toString(),
+    );
     final roleCtrl = TextEditingController(
-        text: (existing?['role'] ?? 'Barbeiro').toString());
+      text: (existing?['role'] ?? 'Barbeiro').toString(),
+    );
     final commCtrl = TextEditingController(
-        text: (existing?['commission'] ?? '50').toString());
+      text: (existing?['commission'] ?? '50').toString(),
+    );
 
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF141417),
         title: Text(
-          existing == null ? 'Adicionar Barbeiro' : 'Editar Barbeiro & Comissão',
+          existing == null
+              ? 'Adicionar Barbeiro'
+              : 'Editar Barbeiro & Comissão',
           style: const TextStyle(color: Color(0xFFF3D97E), fontSize: 16),
         ),
         content: SingleChildScrollView(
@@ -5747,7 +5795,9 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             children: [
               TextField(
                 controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'Nome do Barbeiro'),
+                decoration: const InputDecoration(
+                  labelText: 'Nome do Barbeiro',
+                ),
               ),
               const SizedBox(height: 8),
               TextField(
@@ -5759,7 +5809,8 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
                 controller: commCtrl,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                    labelText: 'Comissão (%) ex: 50 ou 100'),
+                  labelText: 'Comissão (%) ex: 50 ou 100',
+                ),
               ),
             ],
           ),
@@ -5777,9 +5828,11 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
             onPressed: () async {
               final cleanName = nameCtrl.text.trim();
               if (cleanName.isEmpty) {
+                if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                      content: Text('Informe o nome do barbeiro.')),
+                    content: Text('Informe o nome do barbeiro.'),
+                  ),
                 );
                 return;
               }
@@ -5800,7 +5853,6 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
       ),
     );
   }
-
   Widget _buildSettingsTab() {
     return ListView(
       padding: const EdgeInsets.all(14),
@@ -5905,3 +5957,4 @@ class _GestaoHomePageState extends State<GestaoHomePage> {
   }
 }
 // ================= FIM BLOCO 25/25 =================
+                              
